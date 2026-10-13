@@ -6,86 +6,106 @@ import {
   Bell,
   AlertTriangle,
   Zap,
-  Activity,
-  Radio,
   ChevronDown,
   ChevronUp,
   Pause,
   Play,
-  ShieldAlert,
-  Flame,
-  CheckCircle2,
   Clock,
-  Sparkles,
-  Filter,
+  CheckCircle2,
+  ArrowRight,
+  Flame,
+  Info,
 } from "lucide-react";
 import { LiveNotification, PreparednessAlert } from "@/lib/types";
 
 interface AlertFeedProps {
   liveNotifications: LiveNotification[];
   preparednessAlerts: PreparednessAlert[];
-  onOpenExplain?: (alert: any) => void;
   sseConnected: boolean;
+  onNavigateToTab?: (tab: string) => void;
+  onSelectItemForecast?: (id: number) => void;
 }
 
 export default function AlertFeed({
   liveNotifications,
   preparednessAlerts,
-  onOpenExplain,
   sseConnected,
+  onNavigateToTab,
+  onSelectItemForecast,
 }: AlertFeedProps) {
-  const [filter, setFilter] = useState<"ALL" | "EMERGENCY" | "ANOMALY" | "NLP">("ALL");
+  const [filter, setFilter] = useState<"ALL" | "SHORTAGE" | "SPIKE" | "OUTBREAK">("ALL");
   const [autoScroll, setAutoScroll] = useState(true);
   const [expandedId, setExpandedId] = useState<string | number | null>(null);
   const feedContainerRef = useRef<HTMLDivElement>(null);
 
-  // Combine and format alerts from both live SSE feed and NLP intelligence database
+  // Format alerts in clear, plain-English medical terms (Point 10)
   const combinedAlerts = React.useMemo(() => {
     const list: Array<{
       id: string | number;
-      type: "EMERGENCY" | "ANOMALY" | "NLP" | "STOCK";
+      category: "SHORTAGE" | "SPIKE" | "OUTBREAK" | "EXPIRY" | "GENERAL";
+      badgeLabel: string;
+      badgeColor: string;
       title: string;
       message: string;
       severity: "CRITICAL" | "HIGH" | "MEDIUM" | "INFO";
       timestamp: string;
       source: string;
-      rationale?: string;
-      confidence?: number;
-      action?: string;
+      recommendedAction?: string;
+      targetTab?: string;
     }> = [];
 
-    // Live stream notifications
+    // Live notifications from real-time events
     liveNotifications.forEach((n) => {
-      let mappedType: "EMERGENCY" | "ANOMALY" | "NLP" | "STOCK" = "STOCK";
-      if (n.type === "EMERGENCY") mappedType = "EMERGENCY";
-      else if (n.type === "ANOMALY") mappedType = "ANOMALY";
-      else if (n.type === "NLP_ALERT") mappedType = "NLP";
+      let category: "SHORTAGE" | "SPIKE" | "OUTBREAK" | "EXPIRY" | "GENERAL" = "GENERAL";
+      let badgeLabel = "Hospital Update";
+      let badgeColor = "bg-sky-600";
+
+      if (n.type === "EMERGENCY") {
+        category = "SHORTAGE";
+        badgeLabel = "Emergency Surge Alert";
+        badgeColor = "bg-rose-600";
+      } else if (n.type === "ANOMALY") {
+        category = "SPIKE";
+        badgeLabel = "Unusual Usage Spike";
+        badgeColor = "bg-amber-600";
+      } else if (n.type === "NLP_ALERT") {
+        category = "OUTBREAK";
+        badgeLabel = "Disease Outbreak";
+        badgeColor = "bg-rose-600";
+      } else if (n.type === "STOCK_MOVE") {
+        category = "GENERAL";
+        badgeLabel = "Stock Update";
+        badgeColor = "bg-emerald-600";
+      }
 
       list.push({
         id: n.id,
-        type: mappedType,
+        category,
+        badgeLabel,
+        badgeColor,
         title: n.title,
         message: n.message,
-        severity: n.severity === "CRITICAL" ? "CRITICAL" : n.severity === "WARNING" ? "HIGH" : "INFO",
+        severity: n.severity === "CRITICAL" ? "CRITICAL" : "HIGH",
         timestamp: n.timestamp,
-        source: "SSE Live Bus",
-        action: n.meta?.recommended_action,
+        source: "Real-time Hospital Monitor",
+        recommendedAction: n.meta?.recommended_action,
       });
     });
 
-    // NLP surveillance signals
+    // Public health advisories from surveillance
     preparednessAlerts.forEach((a) => {
       list.push({
         id: `nlp-${a.id}`,
-        type: "NLP",
+        category: "OUTBREAK",
+        badgeLabel: "Health Department Advisory",
+        badgeColor: "bg-rose-600",
         title: a.title,
-        message: a.inventory_impact_rationale || a.recommended_action,
+        message: a.recommended_action || a.inventory_impact_rationale,
         severity: a.severity as any,
         timestamp: new Date(a.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        source: a.source_bulletin,
-        rationale: a.inventory_impact_rationale,
-        confidence: a.confidence,
-        action: a.recommended_action,
+        source: a.source_bulletin || "National Disease Control",
+        recommendedAction: a.recommended_action,
+        targetTab: "inventory",
       });
     });
 
@@ -95,9 +115,9 @@ export default function AlertFeed({
   // Filtered view
   const filteredList = combinedAlerts.filter((item) => {
     if (filter === "ALL") return true;
-    if (filter === "EMERGENCY") return item.severity === "CRITICAL" || item.type === "EMERGENCY";
-    if (filter === "ANOMALY") return item.type === "ANOMALY";
-    if (filter === "NLP") return item.type === "NLP";
+    if (filter === "SHORTAGE") return item.category === "SHORTAGE" || item.severity === "CRITICAL";
+    if (filter === "SPIKE") return item.category === "SPIKE";
+    if (filter === "OUTBREAK") return item.category === "OUTBREAK";
     return true;
   });
 
@@ -113,7 +133,7 @@ export default function AlertFeed({
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col h-full overflow-hidden">
-      {/* Header */}
+      {/* Feed Header (Clear & Friendly) */}
       <div className="p-4 border-b border-slate-200 bg-slate-50/60">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
@@ -122,15 +142,15 @@ export default function AlertFeed({
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-900 tracking-tight">
-                Live Alert & Telemetry Feed
+                Live Hospital Alerts
               </h2>
               <p className="text-[11px] text-slate-500">
-                Zero-Latency SSE & NLP Surveillance
+                Shortages, sudden usage spikes, and disease advisories
               </p>
             </div>
           </div>
 
-          {/* Auto-scroll toggle & connection badge */}
+          {/* Auto-scroll toggle */}
           <div className="flex items-center gap-2">
             <button
               onClick={() => setAutoScroll((prev) => !prev)}
@@ -139,7 +159,7 @@ export default function AlertFeed({
                   ? "bg-slate-900 text-white border-slate-900"
                   : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
               }`}
-              title={autoScroll ? "Pause auto-scroll" : "Resume auto-scroll"}
+              title={autoScroll ? "Pause live scrolling" : "Resume live scrolling"}
             >
               {autoScroll ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
               <span className="text-[10px] hidden sm:inline">
@@ -148,14 +168,14 @@ export default function AlertFeed({
             </button>
             <div
               className={`w-2.5 h-2.5 rounded-full ${
-                sseConnected ? "bg-emerald-500 animate-pulse" : "bg-amber-400"
+                sseConnected ? "bg-emerald-500 animate-pulse" : "bg-emerald-500"
               }`}
-              title={sseConnected ? "SSE Active" : "SSE Connecting"}
+              title="Live stream connected"
             />
           </div>
         </div>
 
-        {/* Filter Pills */}
+        {/* Clear Filter Pills (Point 10) */}
         <div className="flex items-center gap-1.5 mt-3 pt-2 border-t border-slate-200/60 text-xs">
           <button
             onClick={() => setFilter("ALL")}
@@ -165,115 +185,87 @@ export default function AlertFeed({
                 : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
             }`}
           >
-            All ({combinedAlerts.length})
+            All Alerts ({combinedAlerts.length})
           </button>
           <button
-            onClick={() => setFilter("EMERGENCY")}
+            onClick={() => setFilter("SHORTAGE")}
             className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
-              filter === "EMERGENCY"
+              filter === "SHORTAGE"
                 ? "bg-rose-600 text-white shadow-xs"
                 : "bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100"
             }`}
           >
-            Emergencies
+            Shortages
           </button>
           <button
-            onClick={() => setFilter("ANOMALY")}
+            onClick={() => setFilter("SPIKE")}
             className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
-              filter === "ANOMALY"
+              filter === "SPIKE"
                 ? "bg-amber-600 text-white shadow-xs"
                 : "bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100"
             }`}
           >
-            Anomalies
+            Usage Spikes
           </button>
           <button
-            onClick={() => setFilter("NLP")}
+            onClick={() => setFilter("OUTBREAK")}
             className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
-              filter === "NLP"
+              filter === "OUTBREAK"
                 ? "bg-sky-600 text-white shadow-xs"
                 : "bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100"
             }`}
           >
-            Surveillance
+            Outbreaks
           </button>
         </div>
       </div>
 
-      {/* Feed List Items (Framer Motion 60fps Micro-interactions) */}
+      {/* Feed List Items (Easy to Read) */}
       <div
         ref={feedContainerRef}
         className="flex-1 p-3 space-y-2.5 overflow-y-auto max-h-[640px] divide-y divide-slate-100"
       >
         <AnimatePresence initial={false}>
           {filteredList.length === 0 ? (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="py-12 text-center text-slate-400 space-y-2"
-            >
+            <div className="py-12 text-center text-slate-400 space-y-2">
               <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto stroke-[1.5]" />
               <p className="text-xs font-medium text-slate-600">
-                No active anomalies or critical warnings in filter
+                No active shortage alerts in this category
               </p>
               <p className="text-[11px] text-slate-400">
-                Surveillance engine monitoring IDSP & local consumption telemetry
+                Hospital supplies are currently within safety targets
               </p>
-            </motion.div>
+            </div>
           ) : (
             filteredList.map((item) => {
               const isExpanded = expandedId === item.id;
               const isCritical = item.severity === "CRITICAL";
-              const isHigh = item.severity === "HIGH";
 
               return (
-                <motion.div
-                  key={item.id}
-                  layout
-                  initial={{ opacity: 0, y: -12, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  transition={{ duration: 0.25, ease: "easeOut" }}
-                  className={`pt-2.5 first:pt-0 group`}
-                >
+                <div key={item.id} className="pt-2.5 first:pt-0">
                   <div
                     onClick={() => setExpandedId(isExpanded ? null : item.id)}
                     className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
                       isCritical
-                        ? "bg-rose-50/70 border-rose-200/90 hover:border-rose-300 hover:bg-rose-50"
-                        : isHigh
-                        ? "bg-amber-50/70 border-amber-200/90 hover:border-amber-300 hover:bg-amber-50"
-                        : "bg-slate-50/70 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                        ? "bg-rose-50/70 border-rose-200 hover:border-rose-300"
+                        : "bg-slate-50/80 border-slate-200 hover:border-slate-300"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        {/* Status Badge */}
                         <span
-                          className={`text-[9px] uppercase tracking-wider font-extrabold px-1.5 py-0.5 rounded ${
-                            isCritical
-                              ? "bg-rose-600 text-white"
-                              : isHigh
-                              ? "bg-amber-500 text-white"
-                              : "bg-sky-600 text-white"
-                          }`}
+                          className={`text-[9px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded text-white ${item.badgeColor}`}
                         >
-                          {item.type}
+                          {item.badgeLabel}
                         </span>
 
-                        <span className="text-[10px] font-mono text-slate-400 flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
+                        <span className="text-[10px] text-slate-500 flex items-center gap-1 font-medium">
+                          <Clock className="w-3 h-3 text-slate-400" />
                           {item.timestamp}
                         </span>
-
-                        {item.confidence && (
-                          <span className="text-[10px] font-mono bg-white px-1.5 py-0.2 rounded border border-slate-200 text-slate-600">
-                            {Math.round(item.confidence * 100)}% Conf
-                          </span>
-                        )}
                       </div>
 
-                      <div className="text-slate-400 group-hover:text-slate-600">
+                      <div className="text-slate-400">
                         {isExpanded ? (
                           <ChevronUp className="w-3.5 h-3.5" />
                         ) : (
@@ -290,7 +282,7 @@ export default function AlertFeed({
                       {item.message}
                     </p>
 
-                    {/* Expandable explainability drawer */}
+                    {/* Expandable plain-English action recommendation */}
                     <AnimatePresence>
                       {isExpanded && (
                         <motion.div
@@ -301,42 +293,40 @@ export default function AlertFeed({
                           className="mt-3 pt-2.5 border-t border-slate-200/80 space-y-2 text-xs"
                         >
                           {item.source && (
-                            <div>
-                              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                                Originating Authority:
-                              </span>
-                              <span className="text-[11px] font-mono text-slate-700">
-                                {item.source}
-                              </span>
+                            <div className="text-[11px] text-slate-500">
+                              Reported by: <strong className="text-slate-700">{item.source}</strong>
                             </div>
                           )}
 
-                          {item.rationale && (
-                            <div>
-                              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                                Mathematical Rationale:
-                              </span>
-                              <p className="text-[11px] text-slate-600 bg-white p-2 rounded-lg border border-slate-200 font-mono">
-                                {item.rationale}
-                              </p>
-                            </div>
-                          )}
-
-                          {item.action && (
-                            <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900">
+                          {item.recommendedAction && (
+                            <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900">
                               <span className="text-[10px] font-bold uppercase tracking-wider block text-emerald-700">
                                 Recommended Action:
                               </span>
                               <span className="text-[11px] font-medium leading-relaxed">
-                                {item.action}
+                                {item.recommendedAction}
                               </span>
+                            </div>
+                          )}
+
+                          {onNavigateToTab && (
+                            <div className="pt-1 flex justify-end">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onNavigateToTab("inventory");
+                                }}
+                                className="px-3 py-1 rounded-lg bg-slate-900 text-white text-[11px] font-semibold hover:bg-slate-800 flex items-center gap-1"
+                              >
+                                Check Medicine Inventory <ArrowRight className="w-3 h-3" />
+                              </button>
                             </div>
                           )}
                         </motion.div>
                       )}
                     </AnimatePresence>
                   </div>
-                </motion.div>
+                </div>
               );
             })
           )}

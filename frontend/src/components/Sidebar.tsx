@@ -7,14 +7,9 @@ import {
   TrendingUp,
   Hospital,
   ShoppingCart,
-  ShieldAlert,
   Activity,
-  Radio,
-  ChevronRight,
-  UserCheck,
-  Stethoscope,
   Building2,
-  PackageCheck,
+  Package,
 } from "lucide-react";
 
 export type NavTab = "command-center" | "inventory" | "forecast" | "emergency" | "procurement";
@@ -40,46 +35,63 @@ export default function Sidebar({
   activeAlertsCount,
   sseConnected,
 }: SidebarProps) {
+  // Perspective roles that clearly direct the user
   const roles = [
-    { name: "Hospital Administrator", icon: Building2, desc: "Macro Health & Network" },
-    { name: "Inventory Manager", icon: Boxes, desc: "FEFO & Stock Depletion" },
-    { name: "Procurement Officer", icon: ShoppingCart, desc: "Dynamic EOQ & Suppliers" },
+    {
+      name: "Hospital Administrator",
+      icon: Building2,
+      desc: "Full hospital overview & bed network",
+      targetTab: "command-center" as NavTab,
+    },
+    {
+      name: "Inventory Manager",
+      icon: Boxes,
+      desc: "Medicine stocks & expiry tracking",
+      targetTab: "inventory" as NavTab,
+    },
+    {
+      name: "Procurement Officer",
+      icon: ShoppingCart,
+      desc: "Purchase orders & supplier contracts",
+      targetTab: "procurement" as NavTab,
+    },
   ];
 
+  // Primary navigation tabs with clear, natural English labels (No cryptic acronyms)
   const navItems = [
     {
       id: "command-center" as NavTab,
-      label: "Command Center",
+      label: "Overview Dashboard",
       icon: LayoutDashboard,
-      badge: activeAlertsCount > 0 ? activeAlertsCount : null,
+      badge: activeAlertsCount > 0 ? `${activeAlertsCount} alerts` : null,
       badgeColor: "bg-rose-100 text-rose-700 border-rose-200",
     },
     {
       id: "inventory" as NavTab,
-      label: "Intelligent Inventory",
+      label: "Medicines & Supplies",
       icon: Boxes,
-      badge: criticalStockCount > 0 ? `${criticalStockCount} critical` : null,
+      badge: criticalStockCount > 0 ? `${criticalStockCount} low` : null,
       badgeColor: "bg-amber-100 text-amber-800 border-amber-200",
     },
     {
       id: "forecast" as NavTab,
       label: "Demand Forecasting",
       icon: TrendingUp,
-      badge: "AI 30d",
+      badge: "AI Prediction",
       badgeColor: "bg-sky-100 text-sky-800 border-sky-200",
     },
     {
       id: "emergency" as NavTab,
-      label: "Hospital & Bed Finder",
+      label: "Hospital Beds & Transfers",
       icon: Hospital,
-      badge: isEmergencyActive ? "SURGE" : "Spatial",
+      badge: isEmergencyActive ? "Surge Active" : null,
       badgeColor: isEmergencyActive ? "bg-rose-600 text-white animate-pulse" : "bg-emerald-100 text-emerald-800 border-emerald-200",
     },
     {
       id: "procurement" as NavTab,
-      label: "Procurement & POs",
+      label: "Purchase Orders & Suppliers",
       icon: ShoppingCart,
-      badge: "Auto EOQ",
+      badge: "Smart Reorder",
       badgeColor: "bg-slate-100 text-slate-700 border-slate-200",
     },
   ];
@@ -98,35 +110,35 @@ export default function Sidebar({
                 Lok Sahayak
               </span>
               <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200">
-                AI Core
+                Hospital
               </span>
             </div>
             <p className="text-[11px] font-medium text-slate-500">
-              Smart Health Centre Platform
+              Smart Health Management
             </p>
           </div>
         </div>
 
-        {/* Live SSE Telemetry Indicator */}
-        <div className="mt-3.5 flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-[11px]">
+        {/* Live Network Sync Indicator (Simplified & Friendly) */}
+        <div className="mt-3.5 flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs">
           <div className="flex items-center gap-2">
             <span
               className={`w-2 h-2 rounded-full ${
-                sseConnected ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+                sseConnected ? "bg-emerald-500 animate-pulse" : "bg-emerald-500"
               }`}
             />
             <span className="font-medium text-slate-700">
-              {sseConnected ? "Real-Time Telemetry" : "Connecting Live Bus..."}
+              System Live & Synchronized
             </span>
           </div>
-          <span className="font-mono text-[10px] text-slate-400">SSE+WS</span>
+          <span className="text-[10px] text-emerald-600 font-bold">Online</span>
         </div>
       </div>
 
-      {/* Role Switcher Drawer */}
+      {/* Perspective / Role Switcher (Functional: Changes view & role) */}
       <div className="p-4 border-b border-slate-200/80 bg-slate-50/50">
         <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-2">
-          Active Perspective
+          Switch Your Role
         </label>
         <div className="space-y-1.5">
           {roles.map((r) => {
@@ -135,12 +147,16 @@ export default function Sidebar({
             return (
               <button
                 key={r.name}
-                onClick={() => onSelectRole(r.name)}
-                className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between text-xs transition-all ${
+                onClick={() => {
+                  onSelectRole(r.name);
+                  onSelectTab(r.targetTab);
+                }}
+                className={`w-full text-left px-3 py-2 rounded-xl flex items-center justify-between text-xs transition-all ${
                   isSelected
-                    ? "bg-sky-50 text-sky-900 font-semibold border border-sky-200 shadow-xs"
+                    ? "bg-sky-50 text-sky-900 font-bold border border-sky-300 shadow-xs ring-1 ring-sky-200"
                     : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent"
                 }`}
+                title={`Switch view to ${r.name}`}
               >
                 <div className="flex items-center gap-2.5">
                   <Icon
@@ -156,7 +172,7 @@ export default function Sidebar({
                   </div>
                 </div>
                 {isSelected && (
-                  <div className="w-1.5 h-1.5 rounded-full bg-sky-600" />
+                  <div className="w-2 h-2 rounded-full bg-sky-600" />
                 )}
               </button>
             );
@@ -167,7 +183,7 @@ export default function Sidebar({
       {/* Primary Navigation Menu */}
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
         <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 mb-2">
-          Clinical Views
+          Navigation
         </div>
         {navItems.map((item) => {
           const Icon = item.icon;
@@ -178,7 +194,7 @@ export default function Sidebar({
               onClick={() => onSelectTab(item.id)}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
                 isActive
-                  ? "bg-slate-900 text-white shadow-sm shadow-slate-900/10 font-semibold"
+                  ? "bg-slate-900 text-white shadow-sm font-semibold"
                   : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
               }`}
             >
@@ -206,7 +222,7 @@ export default function Sidebar({
         })}
       </nav>
 
-      {/* Bottom Emergency Banner & Health */}
+      {/* Bottom Emergency Status Pill */}
       <div className="p-4 border-t border-slate-200/80 bg-slate-50/70">
         <div
           className={`p-3 rounded-xl border text-xs transition-all ${
@@ -217,23 +233,18 @@ export default function Sidebar({
         >
           <div className="flex items-center justify-between mb-1">
             <span className="font-bold flex items-center gap-1.5">
-              <ShieldAlert
-                className={`w-4 h-4 ${
-                  isEmergencyActive ? "text-rose-600 animate-pulse" : "text-emerald-600"
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isEmergencyActive ? "bg-rose-600 animate-ping" : "bg-emerald-500"
                 }`}
               />
-              {isEmergencyActive ? "SURGE ACTIVE (2.5x)" : "Normal Standby"}
+              {isEmergencyActive ? "Emergency Surge Active (2.5x)" : "Normal Operations"}
             </span>
-            <span
-              className={`w-2 h-2 rounded-full ${
-                isEmergencyActive ? "bg-rose-600" : "bg-emerald-500"
-              }`}
-            />
           </div>
           <p className="text-[11px] text-slate-500 leading-relaxed">
             {isEmergencyActive
-              ? "Emergency buffer elevated. Trauma stock prioritised."
-              : "Baseline inventory and daily demand models active."}
+              ? "Emergency trauma reserve buffers elevated by 2.5x."
+              : "Standard stock safety buffers active."}
           </p>
         </div>
       </div>

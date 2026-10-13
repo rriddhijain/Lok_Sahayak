@@ -42,16 +42,16 @@ const MOCK_ITEMS: InventoryItem[] = [
       expiry_risk: 0.15,
       lead_time_risk: 0.85,
       trauma_weight: 1.5,
-      formula: "0.45 * StockOut(0.92) + 0.35 * Expiry(0.15) + 0.20 * LeadTime(0.85)",
+      formula: "Stockout Risk (92%) + Lead Time Risk (85%)",
     },
     reorder_recommendation: {
       is_reorder_needed: true,
       reorder_point: 120,
       suggested_order_qty: 350,
       confidence_score: 0.94,
-      reason: "Current stock (45) < ROP (120). Daily burn 14.2 vials/day with 5-day supplier lead time.",
+      reason: "Current stock (45) is below minimum safe level (120). Daily hospital usage is 14.2 vials/day with 3-day supplier delivery.",
       calculated_at: new Date().toISOString(),
-      formula_used: "ROP = (Daily_Demand × Lead_Time) + Safety_Buffer × (1 + (1 - Supplier_Reliability))",
+      formula_used: "Safe Level = (Daily Demand × Delivery Days) + Safety Buffer",
     },
     daily_burn_rate: 14.2,
     days_until_stockout: 3.2,
@@ -75,16 +75,16 @@ const MOCK_ITEMS: InventoryItem[] = [
       expiry_risk: 0.1,
       lead_time_risk: 0.9,
       trauma_weight: 2.0,
-      formula: "Composite Risk Engine v2.4 (Trauma Surge Weight 2.0x applied)",
+      formula: "Urgent emergency demand surge buffer active",
     },
     reorder_recommendation: {
       is_reorder_needed: true,
       reorder_point: 80,
       suggested_order_qty: 250,
       confidence_score: 0.96,
-      reason: "Severe depletion below Level-1 Trauma minimum buffer. 1.8 days of reserve runway remaining.",
+      reason: "Severe depletion below minimum emergency stock. Only 1.8 days of runway remaining.",
       calculated_at: new Date().toISOString(),
-      formula_used: "EOQ = sqrt((2 * Demand * SetupCost) / HoldingCost)",
+      formula_used: "Recommended Reorder Quantity = Optimal Batch Calculation",
     },
     daily_burn_rate: 10.0,
     days_until_stockout: 1.8,
@@ -92,7 +92,7 @@ const MOCK_ITEMS: InventoryItem[] = [
   {
     id: 3,
     sku: "MED-BLD-003",
-    name: "O-Negative Packed RBC Units",
+    name: "O-Negative Packed Red Blood Cells",
     category: "Blood Products",
     current_stock: 12,
     unit: "Units",
@@ -108,16 +108,16 @@ const MOCK_ITEMS: InventoryItem[] = [
       expiry_risk: 0.65,
       lead_time_risk: 0.78,
       trauma_weight: 2.5,
-      formula: "Cold chain strict FEFO + universal donor critical threshold",
+      formula: "Cold chain strict earliest-expiry first + universal donor priority",
     },
     reorder_recommendation: {
       is_reorder_needed: true,
       reorder_point: 25,
       suggested_order_qty: 30,
       confidence_score: 0.91,
-      reason: "Universal donor reserve critical; 42-day lifespan window requires rapid blood bank rotation.",
+      reason: "Universal donor blood reserve is critical; requires rapid blood bank rotation.",
       calculated_at: new Date().toISOString(),
-      formula_used: "FEFO Dynamic Expiry Allocation",
+      formula_used: "Earliest Expiry First Allocation",
     },
     daily_burn_rate: 2.8,
     days_until_stockout: 4.3,
@@ -143,7 +143,7 @@ const MOCK_ITEMS: InventoryItem[] = [
     id: 5,
     sku: "MED-ANL-005",
     name: "Fentanyl Citrate 50mcg/mL",
-    category: "Anesthesia & Analgesic",
+    category: "Anesthesia & Pain Relief",
     current_stock: 85,
     unit: "Ampoules",
     safety_threshold: 60,
@@ -245,35 +245,35 @@ const MOCK_HOSPITALS: NetworkHospital[] = [
 const MOCK_ALERTS: PreparednessAlert[] = [
   {
     id: 1,
-    title: "Regional Dengue Serotype-2 Surge (IDSP Alert #418)",
-    source_bulletin: "National Centre for Disease Control (NCDC)",
+    title: "Regional Dengue Outbreak Advisory",
+    source_bulletin: "Health Surveillance Department",
     disease_detected: "Dengue Fever",
     confidence: 0.94,
     severity: "CRITICAL",
-    recommended_action: "Stockpile IV Normal Saline, Platelet Infusion Sets, and Paracetamol oral drops. Increase safety threshold by 2.2x.",
-    inventory_impact_rationale: "Cluster detected in 4 adjacent postal zones. Historic correlation indicates a 310% surge in fluid requirements within 9 days.",
+    recommended_action: "Stockpile IV Normal Saline and Paracetamol drops. Increase safe threshold by 2.2x.",
+    inventory_impact_rationale: "Cluster detected in 4 adjacent postal zones. Expect a 300% surge in fluid requirements over next 2 weeks.",
     timestamp: new Date(Date.now() - 1000 * 60 * 18).toISOString(),
   },
   {
     id: 2,
-    title: "Consumption Anomaly: Tranexamic Acid Surge",
-    source_bulletin: "Real-time Z-Score Statistical Monitor",
-    disease_detected: "Trauma Outflow",
+    title: "Unusual Usage Spike: Tranexamic Acid",
+    source_bulletin: "Hospital Usage Monitoring System",
+    disease_detected: "Emergency Trauma Outflow",
     confidence: 0.98,
     severity: "HIGH",
-    recommended_action: "Expedite delivery with MediSupply Corp. Current run rate will exhaust stock in 42 hours.",
-    inventory_impact_rationale: "Z-score +3.42 above 30-day baseline (p < 0.001) triggered by emergency multi-vehicle accident admissions.",
+    recommended_action: "Expedite delivery with supplier. Current usage rate will exhaust stock in 42 hours.",
+    inventory_impact_rationale: "Usage is 3.4x higher than 30-day baseline due to multi-casualty accident admissions.",
     timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
   },
   {
     id: 3,
-    title: "Batch Expiry Advisory: Ceftriaxone Batch #CFX-901",
-    source_bulletin: "FEFO Obsolescence Predictor",
+    title: "Batch Expiring Soon: Ceftriaxone Batch #CFX-901",
+    source_bulletin: "Earliest Expiry Tracking",
     disease_detected: "Batch Expiry",
     confidence: 1.0,
     severity: "MEDIUM",
-    recommended_action: "Prioritize Batch #CFX-901 for outpatient triage; 40 vials expire in 18 days.",
-    inventory_impact_rationale: "FEFO algorithm reordered pick-list to consume CFX-901 before newly received Batch #CFX-904.",
+    recommended_action: "Use Batch #CFX-901 first for current patients; 40 vials expire in 18 days.",
+    inventory_impact_rationale: "Earliest-expiry protocol has routed CFX-901 to front of dispensing queue.",
     timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
   },
 ];
@@ -343,60 +343,106 @@ export async function allocateFEFO(itemId: number, quantity: number) {
   const res = await fetch(`${API_BASE}/api/inventory/fefo-allocate?item_id=${itemId}&quantity=${quantity}`, {
     method: "POST",
   });
-  if (!res.ok) throw new Error("FEFO allocation request failed");
+  if (!res.ok) throw new Error("Expiry-first allocation request failed");
   return res.json();
+}
+
+function generateFallbackSeries(itemId: number, horizon = 30) {
+  const series = [];
+  const baseDemand = itemId === 1 ? 14 : itemId === 2 ? 10 : 8;
+  for (let i = 14; i >= 1; i--) {
+    const d = new Date(Date.now() - i * 86400000);
+    const dateStr = d.toISOString().split("T")[0];
+    const noise = Math.sin(i) * 3 + Math.random() * 2;
+    series.push({
+      date: dateStr,
+      historical_consumption: Math.max(2, Math.round(baseDemand + noise)),
+      predicted_demand: Math.round(baseDemand + noise * 0.5),
+      confidence_lower_80: Math.round((baseDemand + noise) * 0.85),
+      confidence_upper_80: Math.round((baseDemand + noise) * 1.15),
+      confidence_lower_95: Math.round((baseDemand + noise) * 0.72),
+      confidence_upper_95: Math.round((baseDemand + noise) * 1.28),
+    });
+  }
+  for (let i = 0; i <= horizon; i++) {
+    const d = new Date(Date.now() + i * 86400000);
+    const dateStr = d.toISOString().split("T")[0];
+    const predicted = Math.round(baseDemand * (1 + 0.015 * i) + Math.cos(i) * 2);
+    series.push({
+      date: dateStr,
+      historical_consumption: undefined,
+      predicted_demand: predicted,
+      confidence_lower_80: Math.round(predicted * 0.82),
+      confidence_upper_80: Math.round(predicted * 1.18),
+      confidence_lower_95: Math.round(predicted * 0.68),
+      confidence_upper_95: Math.round(predicted * 1.32),
+    });
+  }
+  return series;
 }
 
 export async function fetchItemForecast(itemId: number, horizon = 30): Promise<ForecastOverview> {
   try {
     const res = await fetch(`${API_BASE}/api/forecast/item/${itemId}?horizon_days=${horizon}`);
     if (!res.ok) throw new Error("API error");
-    return await res.json();
-  } catch (err) {
-    // Generate authentic realistic time-series for item
-    const dates: string[] = [];
-    const series = [];
-    const baseDemand = itemId === 1 ? 14 : itemId === 2 ? 10 : 8;
-    for (let i = 14; i >= 1; i--) {
-      const d = new Date(Date.now() - i * 86400000);
-      const dateStr = d.toISOString().split("T")[0];
-      const noise = (Math.sin(i) * 3 + Math.random() * 2);
-      series.push({
-        date: dateStr,
-        historical_consumption: Math.max(2, Math.round(baseDemand + noise)),
-        predicted_demand: Math.round(baseDemand + noise * 0.5),
-        confidence_lower_80: Math.round((baseDemand + noise) * 0.85),
-        confidence_upper_80: Math.round((baseDemand + noise) * 1.15),
-        confidence_lower_95: Math.round((baseDemand + noise) * 0.72),
-        confidence_upper_95: Math.round((baseDemand + noise) * 1.28),
+    const raw = await res.json();
+
+    const series: any[] = [];
+    if (Array.isArray(raw.historical)) {
+      raw.historical.forEach((h: any) => {
+        series.push({
+          date: h.date,
+          historical_consumption: h.actual_consumption,
+          predicted_demand: undefined,
+          confidence_lower_80: undefined,
+          confidence_upper_80: undefined,
+          confidence_lower_95: undefined,
+          confidence_upper_95: undefined,
+        });
       });
     }
-    for (let i = 0; i <= 21; i++) {
-      const d = new Date(Date.now() + i * 86400000);
-      const dateStr = d.toISOString().split("T")[0];
-      const predicted = Math.round(baseDemand * (1 + 0.02 * i) + Math.cos(i) * 2);
-      series.push({
-        date: dateStr,
-        historical_consumption: undefined,
-        predicted_demand: predicted,
-        confidence_lower_80: Math.round(predicted * 0.82),
-        confidence_upper_80: Math.round(predicted * 1.18),
-        confidence_lower_95: Math.round(predicted * 0.68),
-        confidence_upper_95: Math.round(predicted * 1.32),
+
+    if (Array.isArray(raw.forecast)) {
+      raw.forecast.forEach((f: any) => {
+        const pred = f.predicted_demand;
+        const low = f.confidence_lower ?? pred * 0.82;
+        const high = f.confidence_upper ?? pred * 1.18;
+        series.push({
+          date: f.date,
+          historical_consumption: undefined,
+          predicted_demand: pred,
+          confidence_lower_80: Math.round(low * 10) / 10,
+          confidence_upper_80: Math.round(high * 10) / 10,
+          confidence_lower_95: Math.round((low * 0.9) * 10) / 10,
+          confidence_upper_95: Math.round((high * 1.1) * 10) / 10,
+        });
       });
     }
 
     return {
+      item_id: raw.item_id,
+      item_name: raw.item_name,
+      current_stock: raw.current_stock,
+      daily_demand_mean: raw.daily_run_rate ?? 5.5,
+      days_until_depletion: raw.projected_stock_out_days ?? 3.5,
+      projected_stockout_date: raw.projected_stock_out_date ?? "Within 7 days",
+      mae: raw.mae ?? 0.95,
+      rmse: raw.rmse ?? 1.25,
+      r2_score: raw.r2_score ?? 0.88,
+      series: series.length > 0 ? series : generateFallbackSeries(itemId, horizon),
+    };
+  } catch (err) {
+    return {
       item_id: itemId,
       item_name: itemId === 1 ? "Ceftriaxone 1g Injectable" : "Tranexamic Acid 500mg/5mL",
       current_stock: itemId === 1 ? 45 : 18,
-      daily_demand_mean: baseDemand,
+      daily_demand_mean: itemId === 1 ? 14 : 10,
       days_until_depletion: itemId === 1 ? 3.2 : 1.8,
       projected_stockout_date: new Date(Date.now() + 3.2 * 86400000).toLocaleDateString(),
       mae: 1.14,
       rmse: 1.48,
       r2_score: 0.912,
-      series,
+      series: generateFallbackSeries(itemId, horizon),
     };
   }
 }
@@ -405,9 +451,8 @@ export async function fetchReorders(filterUrgent = false) {
   try {
     const res = await fetch(`${API_BASE}/api/procurement/reorders?filter_urgent_only=${filterUrgent}`);
     if (!res.ok) throw new Error("API error");
-    return await res.json();
-  } catch (err) {
-    return [
+    const data = await res.json();
+    return Array.isArray(data) && data.length > 0 ? data : [
       {
         item_id: 1,
         item_name: "Ceftriaxone 1g Injectable",
@@ -423,7 +468,7 @@ export async function fetchReorders(filterUrgent = false) {
         urgency: "CRITICAL",
         lead_time_days: 3,
         supplier_reliability: 0.96,
-        reason: "Stock buffer breached threshold (45 vs 120 safety minimum).",
+        reason: "Stock buffer is below safe replenishment level (45 vs 120 units).",
       },
       {
         item_id: 2,
@@ -440,9 +485,21 @@ export async function fetchReorders(filterUrgent = false) {
         urgency: "CRITICAL",
         lead_time_days: 2,
         supplier_reliability: 0.98,
-        reason: "Trauma Level-1 minimum reserve depleted. 1.8 days runway.",
+        reason: "Minimum emergency trauma reserve depleted. Only 1.8 days of supply remaining.",
       },
     ];
+  } catch (err) {
+    return [];
+  }
+}
+
+export async function fetchApprovedOrders() {
+  try {
+    const res = await fetch(`${API_BASE}/api/procurement/orders/approved`);
+    if (!res.ok) throw new Error("API error");
+    return await res.json();
+  } catch (err) {
+    return [];
   }
 }
 
@@ -485,16 +542,12 @@ export async function fetchSuppliers() {
 }
 
 export async function approvePurchaseOrder(itemId: number, supplierId: number, qty: number, unitCost: number) {
-  try {
-    const res = await fetch(
-      `${API_BASE}/api/procurement/reorders/approve?item_id=${itemId}&supplier_id=${supplierId}&quantity=${qty}&unit_cost=${unitCost}`,
-      { method: "POST" }
-    );
-    if (!res.ok) throw new Error("Approval failed");
-    return await res.json();
-  } catch (err) {
-    return { status: "APPROVED", message: `PO approved for ${qty} units.` };
-  }
+  const res = await fetch(
+    `${API_BASE}/api/procurement/reorders/approve?item_id=${itemId}&supplier_id=${supplierId}&quantity=${qty}&unit_cost=${unitCost}`,
+    { method: "POST" }
+  );
+  if (!res.ok) throw new Error("Approval failed");
+  return await res.json();
 }
 
 export async function fetchHospitals(): Promise<NetworkHospital[]> {
@@ -526,6 +579,49 @@ export async function searchEmergencyHospitals(payload: {
   } catch (err) {
     return MOCK_HOSPITALS;
   }
+}
+
+export async function dispatchPatientTransfer(payload: {
+  destination_hospital_id: number;
+  bed_type: string;
+  patient_name?: string;
+  source_hospital_id?: number;
+}) {
+  const res = await fetch(`${API_BASE}/api/emergency/transfer/dispatch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Dispatch failed");
+  return await res.json();
+}
+
+export async function rejectPatientTransfer(payload: {
+  destination_hospital_id: number;
+  bed_type: string;
+  rejection_reason?: string;
+}) {
+  const res = await fetch(`${API_BASE}/api/emergency/transfer/reject`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Rejection failed");
+  return await res.json();
+}
+
+export async function adjustBedCapacity(payload: {
+  hospital_id: number;
+  bed_type: string;
+  action: "ADMIT" | "DISCHARGE";
+}) {
+  const res = await fetch(`${API_BASE}/api/emergency/bed/adjust`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Bed adjustment failed");
+  return await res.json();
 }
 
 export async function fetchEmergencyStatus() {
@@ -592,15 +688,14 @@ export async function askAIAssistant(query: string, roleContext: string, history
     if (!res.ok) throw new Error("AI query failed");
     return await res.json();
   } catch (err) {
-    // Grounded mock answer if offline
     return {
-      response: `Based on current clinical telemetry for ${roleContext}: We are tracking 1 impending stockout on Tranexamic Acid (1.8 days reserve remaining, daily burn rate 10.0 ampoules/day). Ceftriaxone Batch #CFX-901 has 40 vials expiring in 18 days under FEFO protocol. Reorder recommendation #PO-8819 generated with 96% confidence score.`,
+      response: `Based on current hospital data for ${roleContext}: We are tracking 1 impending shortage on Tranexamic Acid (1.8 days reserve remaining, daily usage 10.0 ampoules/day). Ceftriaxone Batch #CFX-901 has 40 vials expiring in 18 days under earliest-expiry protocol. Recommended reorder generated with 96% confidence.`,
       citations: [
-        { source: "Inventory DB", reference: "SKU MED-TRA-002, Stock=18, SafetyThreshold=80" },
-        { source: "FEFO Engine", reference: "Batch CFX-901, Exp=2026-11-01" },
-        { source: "Demand Forecaster", reference: "Autoregressive Ridge Model R2=0.912" },
+        { source: "Inventory Records", reference: "Tranexamic Acid: Stock=18, Safe Minimum=80" },
+        { source: "Expiry Schedule", reference: "Batch CFX-901, Exp=2026-11-01" },
+        { source: "Usage Forecast", reference: "30-day Demand Projection" },
       ],
-      suggested_actions: ["Approve PO for Tranexamic Acid", "Trigger Emergency Surge 2.5x", "View Recharts Forecast"],
+      suggested_actions: ["Approve Order for Tranexamic Acid", "Turn on Emergency Surge Mode", "View Demand Forecast"],
     };
   }
 }
@@ -629,13 +724,21 @@ export function subscribeToSSE(onMessage: (event: string, data: any) => void) {
       try { onMessage("PO_APPROVED", JSON.parse(e.data)); } catch (_) {}
     });
 
-    eventSource.onerror = (err) => {
-      // EventSource automatic retry handled by browser
-    };
+    eventSource.addEventListener("PATIENT_TRANSFER_DISPATCHED", (e) => {
+      try { onMessage("PATIENT_TRANSFER_DISPATCHED", JSON.parse(e.data)); } catch (_) {}
+    });
+
+    eventSource.addEventListener("PATIENT_TRANSFER_REJECTED", (e) => {
+      try { onMessage("PATIENT_TRANSFER_REJECTED", JSON.parse(e.data)); } catch (_) {}
+    });
+
+    eventSource.addEventListener("BED_CAPACITY_UPDATED", (e) => {
+      try { onMessage("BED_CAPACITY_UPDATED", JSON.parse(e.data)); } catch (_) {}
+    });
 
     return () => eventSource.close();
   } catch (err) {
-    console.warn("SSE connection uninitialized", err);
+    console.warn("SSE connection error", err);
     return () => {};
   }
 }

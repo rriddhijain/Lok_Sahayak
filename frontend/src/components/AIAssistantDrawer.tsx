@@ -42,15 +42,15 @@ export default function AIAssistantDrawer({
     {
       id: "welcome",
       sender: "ai",
-      text: `Hello! I am your Antigravity Clinical Decision Assistant for ${currentRole}. I have live access to the inventory database, FEFO batch logs, 30-day Ridge demand forecaster, and regional hospital bed telemetry. How can I assist you right now?`,
+      text: `Hello! I am your Hospital Decision Assistant for the ${currentRole} role. I have real-time access to medicine stock counts, expiring batches, patient consumption trends, and regional hospital bed availability. How can I help you today?`,
       citations: [
-        { source: "Antigravity Core", reference: "Live Data Grounded Bus" },
+        { source: "Hospital Records", reference: "Live Database & Surveillance" },
       ],
       suggested_actions: [
-        "Show me expiring antibiotics",
-        "What is our Tranexamic Acid runway?",
-        "Check Level-1 Trauma bed capacity",
-        "Simulate 2.5x emergency surge",
+        "Show medicines expiring soon",
+        "What is our Tranexamic Acid supply runway?",
+        "Check regional hospital bed availability",
+        "Which medicines are below safe stock levels?",
       ],
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     },

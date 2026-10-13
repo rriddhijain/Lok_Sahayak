@@ -18,7 +18,7 @@ const ForecastingView = dynamic(() => import("@/components/ForecastingView"), {
   loading: () => (
     <div className="py-24 text-center text-slate-400 space-y-2">
       <div className="w-8 h-8 border-2 border-sky-600 border-t-transparent rounded-full animate-spin mx-auto" />
-      <p className="text-xs font-mono">Initializing time-series chart engine...</p>
+      <p className="text-xs font-mono">Loading demand forecasting models...</p>
     </div>
   ),
 });
@@ -42,16 +42,14 @@ import {
   PreparednessAlert,
   LiveNotification,
 } from "@/lib/types";
-import { Sparkles, Bot } from "lucide-react";
+import { Sparkles } from "lucide-react";
 
 export default function SmartHealthDashboard() {
-  // Navigation & Role states
   const [activeTab, setActiveTab] = useState<NavTab>("command-center");
   const [currentRole, setCurrentRole] = useState("Hospital Administrator");
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Core Data states
   const [summary, setSummary] = useState<any>(null);
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [batches, setBatches] = useState<BatchItem[]>([]);
@@ -60,22 +58,17 @@ export default function SmartHealthDashboard() {
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [alerts, setAlerts] = useState<PreparednessAlert[]>([]);
   const [isEmergencyActive, setIsEmergencyActive] = useState(false);
-
-  // Search & Filters
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Real-Time SSE Live Stream states
   const [sseConnected, setSseConnected] = useState(false);
   const [liveNotifications, setLiveNotifications] = useState<LiveNotification[]>([]);
 
-  // Modals & Drawers state
   const [assistantDrawerOpen, setAssistantDrawerOpen] = useState(false);
   const [fefoModalItem, setFefoModalItem] = useState<InventoryItem | null>(null);
   const [healthModalOpen, setHealthModalOpen] = useState(false);
   const [emergencyModalOpen, setEmergencyModalOpen] = useState(false);
   const [selectedForecastItemId, setSelectedForecastItemId] = useState<number | null>(null);
 
-  // Data Loading Function
   const loadDashboardData = useCallback(async (quiet = false) => {
     if (!quiet) setIsRefreshing(true);
     try {
@@ -99,29 +92,25 @@ export default function SmartHealthDashboard() {
       if (hospRes) setHospitals(hospRes);
       if (alertsRes) setAlerts(alertsRes);
       if (emergRes) setIsEmergencyActive(emergRes.is_emergency_active);
-    } catch (err) {
-      console.error("Dashboard data load failed", err);
     } finally {
       setLoading(false);
       setIsRefreshing(false);
     }
   }, []);
 
-  // Initial Load & SSE Stream Setup
   useEffect(() => {
     loadDashboardData();
 
-    // Subscribe to SSE stream for zero-latency updates
+    // Subscribe to SSE for zero-latency telemetry updates
     const unsubscribe = subscribeToSSE((event, data) => {
       setSseConnected(true);
-
       if (event === "INVENTORY_UPDATE") {
         setLiveNotifications((prev) => [
           {
             id: `ntf-${Date.now()}`,
             type: "STOCK_MOVE",
-            title: `Stock Movement: ${data.item_name}`,
-            message: `${data.transaction_type} of ${Math.abs(data.quantity_changed)} units. New stock: ${data.current_stock}`,
+            title: `Stock Update: ${data.item_name}`,
+            message: `${data.transaction_type === "PURCHASE_ORDER_RECEIPT" ? "Received delivery" : data.transaction_type} of ${Math.abs(data.quantity_changed)} units. New stock: ${data.current_stock}`,
             timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
             severity: "INFO",
             meta: data,
@@ -135,10 +124,10 @@ export default function SmartHealthDashboard() {
           {
             id: `ntf-${Date.now()}`,
             type: "EMERGENCY",
-            title: data.is_active ? "EMERGENCY SURGE PROTOCOL ACTIVATED" : "Normal Standby Mode Restored",
+            title: data.is_active ? "Emergency Surge Mode Activated (2.5x)" : "Normal Operations Restored",
             message: data.is_active
-              ? `Surge buffer multiplier ${data.surge_multiplier}x applied. Deficits flagged.`
-              : "Emergency surge buffer reset to baseline.",
+              ? `Emergency stock buffer increased by ${data.surge_multiplier}x for mass casualty preparedness.`
+              : "Emergency surge buffer reset to standard levels.",
             timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
             severity: data.is_active ? "CRITICAL" : "INFO",
             meta: data,
@@ -165,8 +154,22 @@ export default function SmartHealthDashboard() {
           {
             id: `ntf-${Date.now()}`,
             type: "PROCUREMENT",
-            title: "Purchase Order Approved",
-            message: `PO for ${data.quantity} units of ${data.item_name} confirmed ($${data.total_cost}).`,
+            title: "Purchase Order Confirmed",
+            message: `Purchase order for ${data.quantity} units of ${data.item_name} approved ($${data.total_cost}).`,
+            timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            severity: "INFO",
+            meta: data,
+          },
+          ...prev.slice(0, 19),
+        ]);
+        loadDashboardData(true);
+      } else if (event === "PATIENT_TRANSFER_DISPATCHED") {
+        setLiveNotifications((prev) => [
+          {
+            id: `ntf-${Date.now()}`,
+            type: "EMERGENCY",
+            title: "Patient Transfer Dispatched",
+            message: `Transfer dispatched to ${data.destination_hospital_name} (${data.bed_type} Bed).`,
             timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
             severity: "INFO",
             meta: data,
@@ -180,34 +183,22 @@ export default function SmartHealthDashboard() {
     return () => unsubscribe();
   }, [loadDashboardData]);
 
-  // Handle Emergency Surge Toggle
   const handleToggleEmergency = async () => {
     const targetState = !isEmergencyActive;
-    try {
-      await toggleEmergencyMode({
-        enable_emergency_mode: targetState,
-        incident_type: targetState ? "Multi-Vehicle Highway Collision (Mass Casualty)" : "None",
-        surge_multiplier: targetState ? 2.5 : 1.0,
-        incident_location: "Sector 14 Corridor",
-      });
-      setIsEmergencyActive(targetState);
-      loadDashboardData(true);
-    } catch (err) {
-      alert("Failed to toggle emergency mode.");
-    }
-  };
-
-  // Switch to forecast view when an item is clicked
-  const handleSelectItemForecast = (itemId: number) => {
-    setSelectedForecastItemId(itemId);
-    setActiveTab("forecast");
+    await toggleEmergencyMode({
+      enable_emergency_mode: targetState,
+      surge_multiplier: targetState ? 2.5 : 1.0,
+      incident_type: targetState ? "Emergency Surge Protocol" : "Normal Baseline",
+    });
+    setIsEmergencyActive(targetState);
+    loadDashboardData(true);
   };
 
   const criticalStockCount = items.filter((i) => i.risk_score >= 70).length;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-row font-sans selection:bg-sky-100 selection:text-sky-900">
-      {/* 1. Left Clinical Modern Sidebar */}
+    <div className="min-h-screen bg-slate-50 flex flex-row font-sans">
+      {/* 1. Left Sidebar Navigation */}
       <Sidebar
         activeTab={activeTab}
         onSelectTab={(tab) => setActiveTab(tab)}
@@ -221,7 +212,7 @@ export default function SmartHealthDashboard() {
 
       {/* 2. Main Content Container */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
-        {/* Top Header with Critical Surfaced Information */}
+        {/* Working Top Header with Search and Clear Statuses */}
         <TopHeader
           criticalStockCount={criticalStockCount}
           isEmergencyActive={isEmergencyActive}
@@ -232,6 +223,7 @@ export default function SmartHealthDashboard() {
           onSearchChange={setSearchQuery}
           onRefresh={() => loadDashboardData()}
           isRefreshing={isRefreshing}
+          currentRole={currentRole}
         />
 
         {/* Primary Page Canvas */}
@@ -240,12 +232,12 @@ export default function SmartHealthDashboard() {
             <div className="py-36 text-center text-slate-400 space-y-3">
               <div className="w-10 h-10 border-3 border-sky-600 border-t-transparent rounded-full animate-spin mx-auto" />
               <p className="text-xs font-mono font-semibold text-slate-600">
-                Synchronizing Antigravity decision-support models & spatial telemetry...
+                Loading hospital decision-support systems...
               </p>
             </div>
           ) : (
             <>
-              {/* Tab 1: The Command Center (Role-Based Dashboard) */}
+              {/* Tab 1: Overview Dashboard */}
               {activeTab === "command-center" && (
                 <CommandCenterView
                   summary={summary}
@@ -255,23 +247,33 @@ export default function SmartHealthDashboard() {
                   preparednessAlerts={alerts}
                   isEmergencyActive={isEmergencyActive}
                   onNavigateToTab={(tab) => setActiveTab(tab)}
-                  onSelectItemForecast={handleSelectItemForecast}
+                  onSelectItemForecast={(id) => {
+                    setSelectedForecastItemId(id);
+                    setActiveTab("forecast");
+                  }}
                   sseConnected={sseConnected}
+                  searchQuery={searchQuery}
+                  currentRole={currentRole}
                 />
               )}
 
-              {/* Tab 2: Intelligent Inventory Matrix */}
+              {/* Tab 2: Medicines & Supplies Inventory */}
               {activeTab === "inventory" && (
                 <InventoryMatrix
                   items={items}
                   batches={batches}
-                  onSelectItemForecast={handleSelectItemForecast}
+                  searchQuery={searchQuery}
+                  onSearchChange={setSearchQuery}
+                  onSelectItemForecast={(id) => {
+                    setSelectedForecastItemId(id);
+                    setActiveTab("forecast");
+                  }}
                   onOpenFEFOModal={(item) => setFefoModalItem(item)}
-                  onInstantReorder={(item) => setActiveTab("procurement")}
+                  onInstantReorder={() => setActiveTab("procurement")}
                 />
               )}
 
-              {/* Tab 3: Demand Forecasting & Analytics View */}
+              {/* Tab 3: Demand Forecasting & Consumption Modeling */}
               {activeTab === "forecast" && (
                 <ForecastingView
                   items={items}
@@ -280,7 +282,7 @@ export default function SmartHealthDashboard() {
                 />
               )}
 
-              {/* Tab 4: Emergency Hospital & Bed Finder */}
+              {/* Tab 4: Hospital Beds & Patient Transfers */}
               {activeTab === "emergency" && (
                 <EmergencyHospitalFinder
                   hospitals={hospitals}
@@ -290,7 +292,7 @@ export default function SmartHealthDashboard() {
                 />
               )}
 
-              {/* Tab 5: Dynamic Procurement & Supplier Scorecards */}
+              {/* Tab 5: Purchase Orders & Suppliers */}
               {activeTab === "procurement" && (
                 <ProcurementView
                   reorders={reorders}
@@ -303,17 +305,13 @@ export default function SmartHealthDashboard() {
         </main>
       </div>
 
-      {/* 3. Floating Action Button (FAB) for Natural Language AI Assistant */}
+      {/* 3. Floating Action Button for AI Assistant */}
       <button
         onClick={() => setAssistantDrawerOpen(true)}
-        className="fixed bottom-6 right-6 z-40 px-4 py-3 rounded-full bg-slate-900 text-white shadow-xl hover:bg-slate-800 hover:scale-105 active:scale-95 transition-all flex items-center gap-2.5 border border-slate-700 group"
+        className="fixed bottom-6 right-6 z-40 px-4 py-3 rounded-full bg-slate-900 text-white shadow-xl hover:bg-slate-800 transition-all flex items-center gap-2.5 border border-slate-700"
       >
-        <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-sky-500 to-teal-400 flex items-center justify-center text-white shadow-sm">
-          <Sparkles className="w-3.5 h-3.5" />
-        </div>
-        <span className="text-xs font-bold tracking-tight pr-1">
-          Ask AI Assistant
-        </span>
+        <Sparkles className="w-4 h-4 text-sky-400" />
+        <span className="text-xs font-bold">Ask Hospital AI Assistant</span>
         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
       </button>
 

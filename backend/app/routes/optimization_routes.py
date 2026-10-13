@@ -120,6 +120,22 @@ async def approve_purchase_order(
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     total_cost = round(quantity * unit_cost, 2)
 
+    # Increase item stock and log receipt transaction so approval takes effect
+    item.current_stock += quantity
+    db.add(item)
+
+    from backend.app.models.transactions import StockTransaction
+    txn = StockTransaction(
+        item_id=item.id,
+        transaction_type="RECEIPT",
+        quantity=quantity,
+        department="Central Pharmacy Supply",
+        reference_id=f"PO-{item.id}-{int(now.timestamp())}",
+        recorded_by="Procurement Officer",
+        notes=f"Approved Purchase Order: {quantity} units supplied by {supplier.name} at ${unit_cost:.2f}/unit."
+    )
+    db.add(txn)
+
     po = ReorderRecommendation(
         item_id=item.id,
         supplier_id=supplier.id,
@@ -138,6 +154,14 @@ async def approve_purchase_order(
     db.add(po)
     await db.commit()
 
+    # Broadcast real-time stock update
+    await broadcaster.broadcast("INVENTORY_UPDATE", {
+        "item_name": item.name,
+        "quantity_changed": quantity,
+        "current_stock": item.current_stock,
+        "transaction_type": "PURCHASE_ORDER_RECEIPT"
+    })
+
     # Broadcast event
     await broadcaster.broadcast("PO_APPROVED", {
         "item_name": item.name,
@@ -154,6 +178,34 @@ async def approve_purchase_order(
         "item_name": item.name,
         "supplier_name": supplier.name,
         "ordered_quantity": quantity,
+        "new_stock_level": item.current_stock,
         "total_cost": total_cost,
         "estimated_arrival_days": supplier.historical_lead_time_days
     }
+
+@router.get("/orders/approved")
+async def get_approved_orders(db: AsyncSession = Depends(get_db)):
+    """Returns recently approved purchase orders."""
+    res = await db.execute(
+        select(ReorderRecommendation)
+        .where(ReorderRecommendation.status == "APPROVED")
+        .order_by(ReorderRecommendation.timestamp.desc())
+        .limit(20)
+    )
+    approved = res.scalars().all()
+    out = []
+    for a in approved:
+        item = await db.get(Item, a.item_id)
+        supplier = await db.get(Supplier, a.supplier_id) if a.supplier_id else None
+        out.append({
+            "id": a.id,
+            "item_id": a.item_id,
+            "item_name": item.name if item else "Medical Consumable",
+            "supplier_name": supplier.name if supplier else "Qualified Supplier",
+            "quantity": a.suggested_qty,
+            "unit_cost": a.unit_cost,
+            "total_cost": a.total_estimated_cost,
+            "timestamp": a.timestamp.strftime("%Y-%m-%d %H:%M") if a.timestamp else "Recently",
+            "status": "ORDER_CONFIRMED"
+        })
+    return out
