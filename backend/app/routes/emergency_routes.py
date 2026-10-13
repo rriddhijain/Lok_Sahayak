@@ -1,0 +1,159 @@
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
+from typing import List, Optional
+from datetime import datetime, timezone
+
+from backend.app.database import get_db
+from backend.app.models.hospital import Hospital, BedAllocation
+from backend.app.models.inventory import Item
+from backend.app.schemas.emergency_schemas import (
+    EmergencySearchRequest, HospitalRankedResponse,
+    EmergencyModeToggleRequest, EmergencyModeStatusResponse
+)
+from backend.app.services.spatial_emergency import SpatialEmergencyEngine
+from backend.app.services.sse_websocket import broadcaster
+
+router = APIRouter(prefix="/api/emergency", tags=["Emergency & Spatial Intelligence"])
+
+# Global in-memory emergency state
+EMERGENCY_STATE = {
+    "is_emergency_active": False,
+    "incident_type": "Normal Operations",
+    "surge_multiplier": 1.0,
+    "activated_at": None,
+    "incident_location": None
+}
+
+@router.post("/hospital-finder", response_model=List[HospitalRankedResponse])
+async def search_nearby_hospitals(
+    req: EmergencySearchRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Spatial search accepting incident GPS coordinates (lat, lon) and ranking
+    nearby network hospitals based on Haversine distance, required bed type,
+    and real-time available capacity.
+    """
+    hosp_res = await db.execute(select(Hospital).options(selectinload(Hospital.beds)))
+    hospitals = hosp_res.scalars().all()
+
+    ranked = SpatialEmergencyEngine.rank_hospitals_for_incident(
+        incident_lat=req.incident_latitude,
+        incident_lon=req.incident_longitude,
+        hospitals=hospitals,
+        required_bed_type=req.required_bed_type,
+        min_available_beds=req.min_available_beds,
+        max_radius_km=req.max_radius_km
+    )
+    return ranked
+
+@router.get("/hospitals")
+async def list_network_hospitals(db: AsyncSession = Depends(get_db)):
+    """Lists all hospitals with full bed capacity breakdowns."""
+    hosp_res = await db.execute(select(Hospital).options(selectinload(Hospital.beds)))
+    hospitals = hosp_res.scalars().all()
+
+    output = []
+    for h in hospitals:
+        bed_breakdown = [
+            {
+                "bed_type": b.bed_type,
+                "total_capacity": b.total_capacity,
+                "available_beds": b.available_beds,
+                "occupied_beds": b.occupied_beds,
+                "occupancy_pct": round((b.occupied_beds / b.total_capacity * 100) if b.total_capacity > 0 else 0, 1)
+            }
+            for b in h.beds
+        ]
+        total_cap = sum(b.total_capacity for b in h.beds)
+        total_avail = sum(b.available_beds for b in h.beds)
+
+        output.append({
+            "id": h.id,
+            "hospital_code": h.hospital_code,
+            "name": h.name,
+            "address": h.address,
+            "zone": h.zone,
+            "latitude": h.latitude,
+            "longitude": h.longitude,
+            "contact_phone": h.contact_phone,
+            "trauma_level": h.trauma_level,
+            "total_beds": total_cap,
+            "available_beds": total_avail,
+            "beds": bed_breakdown
+        })
+    return output
+
+@router.get("/status", response_model=EmergencyModeStatusResponse)
+async def get_emergency_status(db: AsyncSession = Depends(get_db)):
+    """Returns current emergency mode status and trauma surge requirements."""
+    items_res = await db.execute(select(Item).where(Item.is_trauma_critical == True))
+    critical_items = items_res.scalars().all()
+
+    surge_calc = SpatialEmergencyEngine.calculate_emergency_inventory_surge(
+        critical_items,
+        surge_multiplier=EMERGENCY_STATE["surge_multiplier"] if EMERGENCY_STATE["is_emergency_active"] else 1.0
+    )
+
+    return {
+        "is_emergency_active": EMERGENCY_STATE["is_emergency_active"],
+        "incident_type": EMERGENCY_STATE["incident_type"],
+        "surge_multiplier": EMERGENCY_STATE["surge_multiplier"],
+        "activated_at": EMERGENCY_STATE["activated_at"],
+        "critical_trauma_items": surge_calc["critical_trauma_items"],
+        "total_emergency_items_monitored": surge_calc["total_emergency_items_monitored"],
+        "items_in_deficit": surge_calc["items_in_deficit"]
+    }
+
+@router.post("/toggle", response_model=EmergencyModeStatusResponse)
+async def toggle_emergency_mode(
+    req: EmergencyModeToggleRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Activates or deactivates Emergency Inventory Mode.
+    Dynamically adjusts trauma safety stock buffers (e.g. 2.5x) and broadcasts live SSE alert.
+    """
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+    EMERGENCY_STATE["is_emergency_active"] = req.enable_emergency_mode
+    if req.enable_emergency_mode:
+        EMERGENCY_STATE["incident_type"] = req.incident_type
+        EMERGENCY_STATE["surge_multiplier"] = req.surge_multiplier
+        EMERGENCY_STATE["activated_at"] = now_str
+        EMERGENCY_STATE["incident_location"] = req.incident_location
+    else:
+        EMERGENCY_STATE["incident_type"] = "Normal Baseline Operations"
+        EMERGENCY_STATE["surge_multiplier"] = 1.0
+        EMERGENCY_STATE["activated_at"] = None
+        EMERGENCY_STATE["incident_location"] = None
+
+    items_res = await db.execute(select(Item).where(Item.is_trauma_critical == True))
+    critical_items = items_res.scalars().all()
+
+    surge_calc = SpatialEmergencyEngine.calculate_emergency_inventory_surge(
+        critical_items,
+        surge_multiplier=EMERGENCY_STATE["surge_multiplier"]
+    )
+
+    # Broadcast event to all connected dashboard tabs
+    await broadcaster.broadcast("EMERGENCY_MODE_STATE", {
+        "is_active": EMERGENCY_STATE["is_emergency_active"],
+        "incident_type": EMERGENCY_STATE["incident_type"],
+        "surge_multiplier": EMERGENCY_STATE["surge_multiplier"],
+        "incident_location": EMERGENCY_STATE["incident_location"],
+        "deficits_detected": surge_calc["items_in_deficit"],
+        "timestamp": now_str
+    })
+
+    return {
+        "is_emergency_active": EMERGENCY_STATE["is_emergency_active"],
+        "incident_type": EMERGENCY_STATE["incident_type"],
+        "surge_multiplier": EMERGENCY_STATE["surge_multiplier"],
+        "activated_at": EMERGENCY_STATE["activated_at"],
+        "critical_trauma_items": surge_calc["critical_trauma_items"],
+        "total_emergency_items_monitored": surge_calc["total_emergency_items_monitored"],
+        "items_in_deficit": surge_calc["items_in_deficit"]
+    }
