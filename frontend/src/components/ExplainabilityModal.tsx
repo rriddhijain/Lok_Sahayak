@@ -13,7 +13,7 @@ export default function ExplainabilityModal({ item, onClose }: ExplainabilityMod
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="glass-panel w-full max-w-2xl p-6 space-y-5 border-cyan-500/30">
+      <div className="bg-slate-950 rounded-2xl shadow-xl border w-full max-w-2xl p-6 space-y-5 border-cyan-500/30">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <div className="flex items-center gap-3">

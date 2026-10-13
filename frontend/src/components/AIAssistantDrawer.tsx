@@ -42,15 +42,15 @@ export default function AIAssistantDrawer({
     {
       id: "welcome",
       sender: "ai",
-      text: `Hello! I am your Hospital Decision Assistant for the ${currentRole} role. I have real-time access to medicine stock counts, expiring batches, patient consumption trends, and regional hospital bed availability. How can I help you today?`,
+      text: `Hello! I am your Hospital Inventory Assistant for ${currentRole}. I have live access to the inventory database, batch expiry records and regional hospital bed availability. How can I assist you right now?`,
       citations: [
-        { source: "Hospital Records", reference: "Live Database & Surveillance" },
+        { source: "Inventory service", reference: "Database facts" },
       ],
       suggested_actions: [
-        "Show medicines expiring soon",
-        "What is our Tranexamic Acid supply runway?",
-        "Check regional hospital bed availability",
-        "Which medicines are below safe stock levels?",
+        "Show me expiring antibiotics",
+        "Which medicines have low stock?",
+        "Check Level-1 Trauma bed capacity",
+        "What is our emergency bed capacity?",
       ],
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     },
@@ -89,7 +89,7 @@ export default function AIAssistantDrawer({
       const aiMsg: ChatMessage = {
         id: `ai-${Date.now()}`,
         sender: "ai",
-        text: res.response || "Telemetry query completed with full provenance.",
+        text: res.response || "Query completed.",
         citations: res.citations || [],
         suggested_actions: res.suggested_actions || [],
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -99,10 +99,8 @@ export default function AIAssistantDrawer({
       const errorMsg: ChatMessage = {
         id: `ai-err-${Date.now()}`,
         sender: "ai",
-        text: "I was able to query our internal decision engine: Tranexamic Acid is critically depleted with 1.8 days reserve remaining, and Ceftriaxone Batch #CFX-901 has 40 vials expiring in 18 days under FEFO protocol.",
-        citations: [
-          { source: "Local Cache", reference: "FEFO Engine & Stockout Monitor" },
-        ],
+        text: "Unable to reach the assistant. Check the backend connection and try again.",
+        citations: [],
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
       setMessages((prev) => [...prev, errorMsg]);
@@ -141,7 +139,7 @@ export default function AIAssistantDrawer({
                   </div>
                   <div>
                     <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                      Antigravity AI Assistant
+                      Hospital Assistant
                       <span className="text-[10px] font-bold uppercase px-1.5 py-0.2 rounded bg-sky-100 text-sky-800 border border-sky-200">
                         Grounded
                       </span>
@@ -259,16 +257,16 @@ export default function AIAssistantDrawer({
                   Expiring Antibiotics
                 </button>
                 <button
-                  onClick={() => handleSend("What is our Tranexamic Acid runway?")}
+                  onClick={() => handleSend("Which medicines have low stock?")}
                   className="px-2.5 py-1 rounded-md bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 whitespace-nowrap"
                 >
-                  Tranexamic Runway
+                  Low stock
                 </button>
                 <button
-                  onClick={() => handleSend("Simulate 2.5x emergency surge")}
+                  onClick={() => handleSend("What is our emergency bed capacity?")}
                   className="px-2.5 py-1 rounded-md bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 whitespace-nowrap"
                 >
-                  2.5x Surge
+                  Bed capacity
                 </button>
               </div>
 
@@ -283,7 +281,7 @@ export default function AIAssistantDrawer({
                 >
                   <input
                     type="text"
-                    placeholder="Ask about inventory, forecasts, FEFO batches..."
+                    placeholder="Ask about inventory, forecasts, or expiring batches..."
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     disabled={loading}

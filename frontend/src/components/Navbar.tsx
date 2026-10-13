@@ -88,7 +88,7 @@ export default function Navbar({
                 sseConnected ? "bg-emerald-400 shadow-[0_0_8px_#34d399]" : "bg-amber-400"
               }`}
             />
-            <span>{sseConnected ? "Live SSE Active" : "Polling Mode"}</span>
+            <span>{sseConnected ? "Live Live updates connected" : "Polling Mode"}</span>
           </div>
 
           {/* Mass-Casualty / Emergency Button */}

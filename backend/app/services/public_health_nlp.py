@@ -267,7 +267,7 @@ class PublicHealthNLPPipeline:
             "affected_categories": signal["affected_categories"],
             "recommended_action": recommended_action,
             "mathematical_reasoning": math_reasoning,
-            "data_source": f"Milvus NLP Pipeline & {signal.get('source_agency', 'Surveillance Feed')}",
+            "data_source": f"Health bulletin analysis & {signal.get('source_agency', 'Surveillance Feed')}",
             "confidence_score": 0.93,
             "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         }

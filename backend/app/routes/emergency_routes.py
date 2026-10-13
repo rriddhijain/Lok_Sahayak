@@ -6,7 +6,7 @@ from typing import List, Optional
 from datetime import datetime, timezone
 
 from backend.app.database import get_db
-from backend.app.models.hospital import Hospital, BedAllocation
+from backend.app.models.hospital import Hospital, BedAllocation, ApplicationState
 from backend.app.models.inventory import Item
 from backend.app.schemas.emergency_schemas import (
     EmergencySearchRequest, HospitalRankedResponse,
@@ -138,6 +138,14 @@ async def toggle_emergency_mode(
         surge_multiplier=EMERGENCY_STATE["surge_multiplier"]
     )
 
+    import json
+    state_row = await db.get(ApplicationState, "emergency")
+    if state_row:
+        state_row.value = json.dumps(EMERGENCY_STATE)
+    else:
+        db.add(ApplicationState(key="emergency", value=json.dumps(EMERGENCY_STATE)))
+    await db.commit()
+
     # Broadcast event to all connected dashboard tabs
     await broadcaster.broadcast("EMERGENCY_MODE_STATE", {
         "is_active": EMERGENCY_STATE["is_emergency_active"],
@@ -158,144 +166,100 @@ async def toggle_emergency_mode(
         "items_in_deficit": surge_calc["items_in_deficit"]
     }
 
-@router.post("/transfer/dispatch")
-async def dispatch_patient_transfer(
-    payload: dict,
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Dispatches an emergency patient transfer between hospitals,
-    reserves/deducts an available bed at the target hospital, and broadcasts live telemetry.
-    """
-    dest_id = payload.get("destination_hospital_id")
-    bed_type = payload.get("bed_type", "Trauma")
-    patient_name = payload.get("patient_name", "Emergency Patient")
-    source_id = payload.get("source_hospital_id")
+from pydantic import BaseModel, Field
+from typing import Literal
+from sqlalchemy import update
+from backend.app.models.hospital import PatientDispatch
 
-    dest_hosp = await db.get(Hospital, dest_id)
-    if not dest_hosp:
-        raise HTTPException(status_code=404, detail="Destination hospital not found")
+class DispatchRequest(BaseModel):
+    hospital_id: int
+    bed_type: str = "Trauma"
+    patients: int = Field(default=1, gt=0, le=100)
 
-    # Locate bed allocation
-    bed_res = await db.execute(
-        select(BedAllocation).where(
-            BedAllocation.hospital_id == dest_id,
-            BedAllocation.bed_type == bed_type
-        )
-    )
-    bed = bed_res.scalars().first()
-    if bed and bed.available_beds > 0:
-        bed.available_beds -= 1
-        bed.occupied_beds += 1
-        db.add(bed)
-        await db.commit()
+class DispatchUpdate(BaseModel):
+    action: Literal["reject", "reassign", "complete"]
+    hospital_id: Optional[int] = None
 
-    source_hosp = await db.get(Hospital, source_id) if source_id else None
+class BedUpdate(BaseModel):
+    bed_type: str
+    available_beds: int = Field(ge=0)
 
-    # Broadcast real-time update
-    await broadcaster.broadcast("PATIENT_TRANSFER_DISPATCHED", {
-        "destination_hospital_name": dest_hosp.name,
-        "source_hospital_name": source_hosp.name if source_hosp else "Command Centre",
-        "bed_type": bed_type,
-        "patient_name": patient_name,
-        "timestamp": datetime.now(timezone.utc).strftime("%H:%M:%S")
-    })
+async def reserve_beds(db, hospital_id, bed_type, patients):
+    result = await db.execute(update(BedAllocation).where(BedAllocation.hospital_id == hospital_id,
+        BedAllocation.bed_type == bed_type, BedAllocation.available_beds >= patients).values(
+        available_beds=BedAllocation.available_beds-patients, occupied_beds=BedAllocation.occupied_beds+patients))
+    if result.rowcount != 1:
+        raise HTTPException(409, "Not enough available beds of the selected type at this hospital")
 
-    return {
-        "success": True,
-        "message": f"Patient transfer dispatched to {dest_hosp.name} for {bed_type} bed.",
-        "destination_hospital": dest_hosp.name,
-        "bed_type": bed_type,
-        "remaining_available_beds": bed.available_beds if bed else 0
-    }
+async def release_beds(db, dispatch):
+    result = await db.execute(update(BedAllocation).where(BedAllocation.hospital_id == dispatch.hospital_id,
+        BedAllocation.bed_type == dispatch.bed_type, BedAllocation.occupied_beds >= dispatch.patients).values(
+        available_beds=BedAllocation.available_beds+dispatch.patients, occupied_beds=BedAllocation.occupied_beds-dispatch.patients))
+    if result.rowcount != 1:
+        raise HTTPException(409, "Bed counts changed. Refresh before updating this dispatch")
 
-@router.post("/transfer/reject")
-async def reject_patient_transfer(
-    payload: dict,
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Rejects or diverts an emergency transfer dispatch and frees the target bed.
-    """
-    dest_id = payload.get("destination_hospital_id")
-    bed_type = payload.get("bed_type", "Trauma")
-    reason = payload.get("rejection_reason", "Capacity constraint / Ambulance diverted")
+@router.get("/dispatches")
+async def list_dispatches(db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(select(PatientDispatch).order_by(PatientDispatch.id.desc()))).scalars().all()
+    names = {h.id:h.name for h in (await db.execute(select(Hospital))).scalars()}
+    return [{"id":d.id, "hospital_id":d.hospital_id, "hospital_name":names.get(d.hospital_id), "bed_type":d.bed_type,
+             "patients":d.patients, "status":d.status, "created_at":d.created_at} for d in rows]
 
-    dest_hosp = await db.get(Hospital, dest_id)
-    if dest_id and dest_hosp:
-        bed_res = await db.execute(
-            select(BedAllocation).where(
-                BedAllocation.hospital_id == dest_id,
-                BedAllocation.bed_type == bed_type
-            )
-        )
-        bed = bed_res.scalars().first()
-        if bed:
-            bed.available_beds += 1
-            bed.occupied_beds = max(0, bed.occupied_beds - 1)
-            db.add(bed)
-            await db.commit()
-
-    await broadcaster.broadcast("PATIENT_TRANSFER_REJECTED", {
-        "hospital_name": dest_hosp.name if dest_hosp else "Facility",
-        "bed_type": bed_type,
-        "reason": reason,
-        "timestamp": datetime.now(timezone.utc).strftime("%H:%M:%S")
-    })
-
-    return {
-        "success": True,
-        "status": "REJECTED",
-        "reason": reason
-    }
-
-@router.post("/bed/adjust")
-async def adjust_bed_capacity(
-    payload: dict,
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Manually admits or discharges a patient to update live bed availability (+1 / -1).
-    """
-    hosp_id = payload.get("hospital_id")
-    bed_type = payload.get("bed_type", "Trauma")
-    action = payload.get("action", "ADMIT")  # "ADMIT" or "DISCHARGE"
-
-    hosp = await db.get(Hospital, hosp_id)
-    if not hosp:
-        raise HTTPException(status_code=404, detail="Hospital not found")
-
-    bed_res = await db.execute(
-        select(BedAllocation).where(
-            BedAllocation.hospital_id == hosp_id,
-            BedAllocation.bed_type == bed_type
-        )
-    )
-    bed = bed_res.scalars().first()
-    if not bed:
-        raise HTTPException(status_code=404, detail="Bed allocation not found")
-
-    if action == "ADMIT":
-        if bed.available_beds <= 0:
-            raise HTTPException(status_code=400, detail="No available beds to admit")
-        bed.available_beds -= 1
-        bed.occupied_beds += 1
-    elif action == "DISCHARGE":
-        if bed.occupied_beds <= 0:
-            raise HTTPException(status_code=400, detail="No occupied beds to discharge")
-        bed.available_beds += 1
-        bed.occupied_beds -= 1
-
-    db.add(bed)
+@router.post("/dispatches")
+async def create_dispatch(req: DispatchRequest, db: AsyncSession = Depends(get_db)):
+    await reserve_beds(db, req.hospital_id, req.bed_type, req.patients)
+    dispatch = PatientDispatch(hospital_id=req.hospital_id, bed_type=req.bed_type, patients=req.patients)
+    db.add(dispatch)
     await db.commit()
+    await broadcaster.broadcast("DISPATCH_UPDATE", {"message":f"Dispatch #{dispatch.id} saved; {req.patients} beds reserved"})
+    return {"id":dispatch.id, "status":dispatch.status}
 
-    return {
-        "success": True,
-        "hospital_name": hosp.name,
-        "bed_type": bed_type,
-        "action": action,
-        "available_beds": bed.available_beds,
-        "occupied_beds": bed.occupied_beds,
-        "total_capacity": bed.total_capacity
-    }
+@router.patch("/dispatches/{dispatch_id}")
+async def change_dispatch(dispatch_id: int, req: DispatchUpdate, db: AsyncSession = Depends(get_db)):
+    dispatch = await db.get(PatientDispatch, dispatch_id)
+    if not dispatch:
+        raise HTTPException(404, "Dispatch not found")
+    if dispatch.status != "DISPATCHED":
+        raise HTTPException(409, "This dispatch is already closed")
+    # Conditional update serializes competing dispatch actions before modifying bed counts.
+    target_status = "DISPATCHED" if req.action == "reassign" else ("REJECTED" if req.action == "reject" else "COMPLETED")
+    lock = await db.execute(update(PatientDispatch).where(PatientDispatch.id == dispatch_id,
+        PatientDispatch.status == "DISPATCHED", PatientDispatch.hospital_id == dispatch.hospital_id).values(status=target_status))
+    if lock.rowcount != 1:
+        raise HTTPException(409, "Dispatch changed; refresh and try again")
+    await release_beds(db, dispatch)
+    if req.action == "reassign":
+        if req.hospital_id is None or req.hospital_id == dispatch.hospital_id:
+            raise HTTPException(422, "Choose a different destination hospital")
+        await reserve_beds(db, req.hospital_id, dispatch.bed_type, dispatch.patients)
+        dispatch.hospital_id = req.hospital_id
+    dispatch.status = target_status
+    await db.commit()
+    await broadcaster.broadcast("DISPATCH_UPDATE", {"message":f"Dispatch #{dispatch_id}: {req.action}; bed availability updated"})
+    return {"id":dispatch_id, "status":dispatch.status}
 
+@router.patch("/hospitals/{hospital_id}/beds")
+async def change_beds(hospital_id: int, req: BedUpdate, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import func
+    bed = (await db.execute(select(BedAllocation).where(BedAllocation.hospital_id == hospital_id,
+            BedAllocation.bed_type == req.bed_type))).scalars().first()
+    if not bed:
+        raise HTTPException(404, "Bed type not found at this hospital")
+    reserved = (await db.execute(select(func.coalesce(func.sum(PatientDispatch.patients), 0)).where(
+        PatientDispatch.hospital_id == hospital_id, PatientDispatch.bed_type == req.bed_type,
+        PatientDispatch.status == "DISPATCHED"))).scalar_one()
+    if req.available_beds > bed.total_capacity - reserved:
+        raise HTTPException(422, "Availability exceeds capacity after accounting for active dispatch reservations")
+    bed.available_beds = req.available_beds
+    bed.occupied_beds = bed.total_capacity - req.available_beds
+    await db.commit()
+    await broadcaster.broadcast("BED_UPDATE", {"message":f"{req.bed_type} bed availability updated"})
+    return {"success":True, "available_beds":bed.available_beds}
+
+async def restore_emergency_state():
+    import json
+    from backend.app.database import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        row = await db.get(ApplicationState, "emergency")
+        if row:
+            EMERGENCY_STATE.update(json.loads(row.value))

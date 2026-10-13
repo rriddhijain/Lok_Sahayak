@@ -178,7 +178,7 @@ export default function ProcurementDashboard({
                           onClick={() => handleApprove(r)}
                           className="px-3 py-1 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-medium text-xs shadow-sm transition-all disabled:opacity-50"
                         >
-                          {approvingId === r.item_id ? "Issuing PO..." : "Approve PO"}
+                          {approvingId === r.item_id ? "Issuing PO..." : "Approve order"}
                         </button>
                       </div>
                     </td>

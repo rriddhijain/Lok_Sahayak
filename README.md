@@ -1,177 +1,107 @@
-# Lok Sahayak: Smart Health Centre Management for Hospital Inventory
-### AI-Enabled Proactive Decision-Support System powered by Antigravity Infrastructure
+# Lok Sahayak — Hospital Inventory & Bed Management
 
----
+A Next.js dashboard connected to a FastAPI backend for medicine inventory, batch dispensing, demand forecasts, purchasing, public-health alerts, and patient dispatch.
 
-## 🌟 Executive Overview
+## Quick start
 
-**Lok Sahayak** transitions hospital inventory and supply chain operations from **reactive manual tracking** to **proactive, data-driven forecasting**. Built with **Antigravity** as its core decision-support infrastructure, the platform integrates statistical machine learning, real-time spatial analytics, and Milvus vector intelligence to prevent stockouts, eliminate batch expiry waste, optimize procurement costs, and manage mass-casualty surges.
+Prerequisites: Python 3.11 or 3.12, Node.js 20 or newer, and npm. Run all backend commands from this project folder, not from `backend/`.
 
----
+1. Install backend dependencies in a virtual environment:
 
-## 🏛️ System Architecture
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r backend/requirements.txt
+```
+
+On Windows, activate with `.venv\Scripts\activate` and use `python` in place of `python3`.
+
+2. Install frontend dependencies:
+
+```bash
+cd frontend
+npm ci
+cd ..
+```
+
+3. Start both services:
+
+```bash
+python start.py
+```
+
+Open **http://localhost:3000**. API documentation: **http://localhost:8000/docs**.
+Use Ctrl+C to stop both services. Alternatively run `python -m backend.main` and `npm run dev` (inside `frontend`) in separate terminals.
+
+SQLite is created automatically as `hospital_inventory.db`. The first startup creates the sample hospital network, 12 inventory items, batches, suppliers, and 60 days of consumption history. Subsequent startups retain purchases, stock movements, beds, dispatch records, and emergency reserve settings. No external API key or vector database is needed for the local demo.
+
+## Main workflows
+
+- **Your work view:** Administrator can use all pages; Inventory Manager can use only Medicine Inventory; Procurement Officer can use only Purchasing & Orders. The sidebar, actions, data requests, and API policy follow this selection. The selected role persists after refresh. This is a demo role switcher, not authenticated login; a real deployment must determine roles from verified user accounts.
+- **Search:** Find medicine names, item codes, categories, batch numbers, hospital names, and purchase recommendations. Use the result buttons to open a matching page; Clear search restores all data.
+- **Medicine inventory:** Expand a row for risk and batch details. Storage badges show the configured value in degrees Celsius. Preview dispensing selects unexpired batches by earliest expiry. Confirm dispensing commits the complete request atomically, updates stock and daily consumption, and checks unusual usage.
+- **Purchasing:** Approve a recommendation to save an order. It moves to order history and is removed from pending recommendations. Approval does not add physical stock. Inventory and order history show the saved estimated delivery date, remaining days, incoming quantity, and overdue status based on supplier lead time. The ETA is a planning estimate and does not auto-receive stock. Record delivery adds a new batch; Cancel order allows a new recommendation. Repeat delivery/approval actions are blocked. The demonstration delivery action uses a clearly documented 365-day sample shelf life; real deployments should capture supplier batch and expiry metadata.
+- **Forecasting:** Changing the forecast period requests that many daily predictions; switching the interval changes the uncertainty band. A period controls the number of future dates, not an arbitrary increase in predicted demand. Average prediction error and model fit come from held-out history.
+- **Emergency reserve:** Raises the planning safety buffer for trauma-critical items to 2.5 times its baseline. Purchasing recommendations and emergency readiness are recalculated. It does not invent stock receipts or change past consumption.
+- **Health bulletins:** Add text manually or choose an example, then Analyze bulletin. Disease keyword extraction checks affected medicines and saves an alert when items match. This is manual ingestion, not an automatic connection to an official agency.
+- **Beds and dispatch:** Manage beds saves availability with capacity validation. Dispatch patients reserves the selected number of beds. Reject dispatch releases them; Change hospital moves the reservation in one transaction if capacity exists. Complete dispatch releases the reservation when it is no longer needed; it is not a clinical discharge system.
+- **Alerts & Recent Activity:** Saved health advisories and incoming operational events. Filters show emergencies, unusual usage, and health bulletins. Click an alert for source and recommended action. Auto-scroll can be disabled without stopping incoming data.
+- **Connection indicator:** Reports the real event-stream connection. On failure the browser retries automatically; errors remain visible instead of fabricated successful responses.
+- **Assistant:** Uses deterministic query routing and current database facts with citations. It does not require a large language model API key.
+
+## Architecture and files
 
 ```mermaid
 flowchart TD
-    subgraph Surveillance["Public Health NLP & Surveillance"]
-        ExternalFeeds["Health Bulletins (IDSP / NCDC)"] --> NLP["NLP Entity Extraction"]
-        NLP --> Milvus["Milvus Vector Database (128-dim)"]
-        Milvus --> CrossRef["Cross-Reference Outbreak Signals"]
-    end
-
-    subgraph CoreBackend["FastAPI Backend Services"]
-        DB[(PostgreSQL / SQLite)]
-        Forecaster["Time-Series Demand Forecaster (Ridge + MAE/RMSE)"]
-        RiskEngine["Composite Risk & FEFO Allocator"]
-        AnomalyEngine["Statistical Anomaly Detector (Z-Score & IQR)"]
-        Optimizer["Procurement Optimizer (EOQ + Supplier Intelligence)"]
-        Spatial["Spatial Haversine Emergency Hospital Finder"]
-        AgentCore["Antigravity Grounded AI Assistant"]
-        Broadcaster["Live SSE & WebSocket Broadcaster"]
-    end
-
-    subgraph UI["Next.js Role-Based Frontend"]
-        AdminView["Hospital Administrator View"]
-        InventoryView["Inventory Manager View"]
-        ProcurementView["Procurement Staff View"]
-        AssistantChat["Antigravity AI Chat Drawer"]
-    end
-
-    DB --> Forecaster
-    DB --> RiskEngine
-    DB --> AnomalyEngine
-    DB --> Optimizer
-    DB --> Spatial
-    CrossRef --> DB
-    Forecaster --> Broadcaster
-    AnomalyEngine --> Broadcaster
-    Optimizer --> Broadcaster
-    Spatial --> Broadcaster
-    Broadcaster --> UI
-    AgentCore <--> DB
-    AgentCore <--> UI
+    UI["Next.js / React dashboard"] --> API["FastAPI routes"]
+    API --> DB["SQLite or PostgreSQL"]
+    API --> Services["Forecast, risk, orders, health analysis"]
+    Services --> DB
+    API --> Events["Server-Sent Events broadcaster"]
+    Events --> UI
 ```
 
----
-
-## 🚀 Key Modules & Capabilities
-
-### 1. Database & Relational Data Models (Phases 1 & 2)
-* **Inventory & Consumables**: SKU Code, Category, Unit, Current Stock, Safety Threshold, Unit Cost, Cold Chain Temp, Trauma Criticality flag.
-* **Batch & Expiry**: Batch Numbers, Manufacturing & Expiry Timestamps, Remaining Quantities, Purchase Price, Supplier IDs.
-* **Hospitals & Beds**: GPS Coordinates (`latitude`, `longitude`), Trauma Level (Level-1, Level-2, District), Bed Allocation Breakdown (`Trauma`, `ICU`, `General`, `Pediatric`, `Oxygen`).
-* **Suppliers & Cost Matrices**: Historical Lead Times, Reliability Scores ($0.0 - 1.0$), On-Time Delivery Rates, Quality Compliance, Bulk Volume Discount breaks.
-* **Transactions & Consumption Logs**: Continuous stock movements (`CONSUMPTION`, `RECEIPT`, `DISPATCH`), departmental usage attribution.
-
-### 2. Time-Series ML Demand Forecasting (Phases 3 & 4)
-* **Model**: Multi-feature Autoregressive Ridge Regression with day-of-week seasonality decomposition and lag features ($Lag_1, Lag_7$).
-* **Model Metrics**: Out-of-sample **Mean Absolute Error (MAE)**, **Root Mean Squared Error (RMSE)**, and $R^2$ fit scores.
-* **Stock-Out Projection**: Estimates time-to-depletion and exact calendar stockout dates based on forward consumption integrals.
-
-### 3. Stock-Out, Expiry Risk & FEFO Allocation Engine
-* **Composite Inventory Risk Score ($0 - 100$)**:
-  $$\text{Composite Risk} = 0.45 \cdot \text{StockOutRisk} + 0.35 \cdot \text{ExpiryRisk} + 0.20 \cdot \text{SupplierLeadTimeRisk}$$
-* **FEFO Protocol (First-Expired, First-Out)**: Automatically routes dispensations to batches with earliest expiry dates first to prevent medication expiration write-offs.
-
-### 4. Statistical Anomaly Detection
-* **Z-Score Spike Detection**: $Z = \frac{x_t - \mu_{window}}{\sigma_{window}}$ (threshold $\pm 2.3$).
-* **IQR Outlier Bounds**: Flags sudden spikes (mass emergencies or epidemic surges) and drops (unrecorded consumption shifts).
-
-### 5. Procurement Optimization Engine (Phase 5)
-* **Supplier Intelligence**: Multi-attribute ranking evaluating reliability, on-time delivery rate, lead time, and cost matrices.
-* **Dynamic Reorder Point (ROP)**:
-  $$\text{ROP} = (\text{Daily Demand} \times \text{Lead Time}) + \text{Safety Buffer} \times (1 + (1 - \text{Reliability}))$$
-* **Economic Order Quantity (EOQ)**:
-  $$\text{EOQ} = \sqrt{\frac{2 \cdot D_{\text{annual}} \cdot K}{h \cdot C}}$$
-
-### 6. Emergency & Spatial Intelligence (Phase 6)
-* **Haversine Proximity Ranking**: Great-circle distance calculations ranking hospitals by transit time and real-time bed capacity.
-* **Emergency Surge Mode**: Dynamically elevates trauma safety stock buffers by **2.5x** and flags surge deficits.
-
-### 7. Public Health NLP Pipeline with Milvus (Phases 7 & 8)
-* Semantic entity extraction for disease types (Dengue, Influenza, Cholera, Trauma).
-* 128-dimensional dense vector embeddings indexed into **Milvus Vector Database**.
-* Auto-generates **AI Preparedness Alerts** with mathematical reasoning when regional outbreaks threaten internal inventory runways.
-
-### 8. Role-Based Next.js Dashboard & Antigravity Assistant (Phase 9)
-* **Hospital Administrator**: Regional bed occupancy matrix, network risk index, epidemic alerts.
-* **Inventory Manager**: Real-time stock levels, FEFO batch expiry tracker, usage recording.
-* **Procurement Staff**: Automated purchase order recommendations, supplier performance scorecards.
-* **Antigravity AI Assistant**: Conversational agent providing grounded natural language answers with auditable live citations.
-* **Explainability Guarantee**: Every alert displays data provenance, timestamp, and mathematical formula.
-
----
-
-## 🛠️ Tech Stack
-
-| Layer | Technology |
+| Folder | Responsibility |
 |---|---|
-| **Core Infrastructure** | Antigravity AI Decision Framework |
-| **Backend API** | Python 3.11+, FastAPI, Uvicorn |
-| **Database** | PostgreSQL / SQLite (async with SQLAlchemy 2.0 & Greenlet) |
-| **Vector Database** | Milvus / Milvus Lite (128-dim Cosine Similarity) |
-| **ML & Forecasting** | Scikit-Learn, NumPy, Pandas, SciPy |
-| **Real-time Bus** | Server-Sent Events (SSE) & WebSockets |
-| **Frontend Client** | Next.js 15, React 19, TypeScript, Lucide Icons |
-| **Styling** | Vanilla CSS Glassmorphism Design Tokens |
+| `frontend/src/app` | Main page, layout, shared styles |
+| `frontend/src/components` | Dashboard screens, modals, charts, assistant |
+| `frontend/src/lib/api.ts` | Requests, error handling, backend-to-frontend field mapping |
+| `backend/main.py` | Application startup, database seeding, route registration |
+| `backend/app/models` | Inventory, batches, orders, alerts, hospital beds, dispatch, settings |
+| `backend/app/routes` | Validated HTTP endpoints and saved workflow actions |
+| `backend/app/services` | Statistical forecasting, earliest-expiry allocation, order sizing, distance ranking, health matching |
+| `tests` | Backend regression tests and browser workflow checks |
 
----
+The browser uses same-origin `/api` requests. Next.js forwards these to `BACKEND_URL` (default `http://localhost:8000`). If hosting the API separately, `NEXT_PUBLIC_API_URL` can override the browser address and must be set before building.
 
-## 💻 Running the Complete Stack Locally
+## Verification
 
-### Option A: Zero-Setup Local Development (SQLite + Milvus Lite)
-
-#### 1. Start the FastAPI Backend
 ```bash
-# From workspace root
-python3 -m backend.main
+python -m unittest discover -s tests -v
+cd frontend
+npm run lint
+npm run build
 ```
-The server will start at `http://localhost:8000`. On first run, it automatically seeds:
-- 12 pharmaceutical & trauma critical consumables
-- 30+ batches with realistic expiry profiles
-- 5 regional network hospitals with real-time bed capacity
-- 4 qualified medical suppliers with scorecards
-- 60 days of historical consumption logs
 
-#### 2. Start the Next.js Frontend
-In a separate terminal:
+Optional browser checks (start both services with a fresh sample database first):
+
 ```bash
 cd frontend
-npm run dev
+npm install --no-save playwright
+npx playwright install chromium
+npm run test:e2e
 ```
-Open your browser at **`http://localhost:3000`**.
 
----
+Browser tests mutate the sample data; use a disposable database. Tests were run with isolated databases, without including their state in the deliverable. See `VALIDATION.md` and `PRESENTATION_GUIDE.md` for the check results and four-person explanation.
 
-### Option B: Production Containerized Stack (PostgreSQL + Milvus Standalone)
+## Docker
 
-Run the entire cluster with Docker Compose:
 ```bash
-docker compose up -d --build
+docker compose up --build
 ```
-This starts:
-- `lok_sahayak_postgres` on port `5432`
-- `lok_sahayak_milvus` (with etcd & MinIO) on port `19530`
-- `lok_sahayak_backend` on port `8000`
-- `lok_sahayak_frontend` on port `3000`
 
----
+Compose provides PostgreSQL, the existing optional Milvus stack, backend, and frontend. The frontend now proxies to the backend container using `BACKEND_URL`, so browser requests do not depend on internal container names. The frontend build uses the committed lockfile and includes its proxy configuration. Docker execution requires a local Docker installation; container startup was not exercised in the validation environment.
 
-## 📡 API Endpoints Reference
+## Scope of the demonstration
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/inventory/items` | `GET` | List items with composite risk scores and days left |
-| `/api/inventory/batches` | `GET` | List batches sorted by FEFO (earliest expiry first) |
-| `/api/inventory/adjust` | `POST` | Record consumption/receipt with automatic anomaly scan |
-| `/api/inventory/fefo-allocate` | `POST` | Simulate FEFO pick-list for requested quantity |
-| `/api/forecast/item/{id}` | `GET` | 30-day forecast, MAE, RMSE, and stock-out runway |
-| `/api/procurement/reorders` | `GET` | Recommended POs via dynamic EOQ and supplier utility |
-| `/api/procurement/suppliers` | `GET` | Supplier scorecards (reliability, SLA, lead time) |
-| `/api/emergency/hospital-finder` | `POST` | Haversine spatial ranking of nearby hospitals |
-| `/api/emergency/toggle` | `POST` | Toggle 2.5x emergency surge inventory mode |
-| `/api/nlp/ingest` | `POST` | Ingest external disease bulletin & index into Milvus |
-| `/api/nlp/alerts` | `GET` | Active AI preparedness alerts with mathematical reasoning |
-| `/api/assistant/chat` | `POST` | Antigravity AI Assistant query with grounded citations |
-| `/api/stream/sse` | `GET` | Server-Sent Events live event stream |
-| `/api/stream/ws` | `WebSocket` | Real-time bidirectional WebSocket channel |
+This is a presentation-ready local application, not a deployed clinical system. Sample hospital locations and medicine records are illustrative. Travel time is a distance-based estimate; the radar is an illustration, not a navigation map. Health analysis is keyword-based with hashed vectors; Milvus is optional and falls back to a process-local vector store. Alerts persist in the relational database, while fallback similarity-search vectors do not survive restart. The assistant is a rules-based, database-grounded helper. Authentication, real ambulance communication, supplier integrations, and clinical validation are outside this project. Live updates use a single backend process; multi-worker deployments require a shared event broker.

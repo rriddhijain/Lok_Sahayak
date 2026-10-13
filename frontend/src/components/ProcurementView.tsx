@@ -5,16 +5,18 @@ import {
   ShoppingCart,
   CheckCircle2,
   AlertTriangle,
+  TrendingDown,
   ShieldCheck,
   Star,
   Clock,
   DollarSign,
   Sparkles,
+  ArrowRight,
+  Send,
   Building,
-  Check,
-  Package,
 } from "lucide-react";
-import { approvePurchaseOrder, fetchApprovedOrders } from "@/lib/api";
+import { arrivalText } from "@/lib/roles";
+import { approvePurchaseOrder, fetchPurchaseOrders, updatePurchaseOrder } from "@/lib/api";
 
 interface ProcurementViewProps {
   reorders: any[];
@@ -23,104 +25,41 @@ interface ProcurementViewProps {
 }
 
 export default function ProcurementView({
-  reorders: initialReorders,
+  reorders,
   suppliers,
   onOrderApproved,
 }: ProcurementViewProps) {
-  const [pendingOrders, setPendingOrders] = useState<any[]>(initialReorders);
-  const [approvedOrders, setApprovedOrders] = useState<any[]>([]);
   const [approvingId, setApprovingId] = useState<number | null>(null);
-  const [successBanner, setSuccessBanner] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"PENDING" | "APPROVED">("PENDING");
 
-  // Keep pending orders in sync with prop updates
-  useEffect(() => {
-    setPendingOrders(initialReorders);
-  }, [initialReorders]);
-
-  // Load recently approved orders from API
-  useEffect(() => {
-    fetchApprovedOrders()
-      .then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
-          setApprovedOrders(data);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  // Functional Order Approval (Point 1)
+  const [message, setMessage] = useState("");
+  const [orders, setOrders] = useState<any[]>([]);
+  const loadOrders = () => fetchPurchaseOrders().then(setOrders).catch(e => setMessage(e.message));
+  useEffect(() => {loadOrders();}, [reorders]);
+  const [workingOrder, setWorkingOrder] = useState<number | null>(null);
+  const handleOrder = async (id: number, action: string) => {
+    setWorkingOrder(id);
+    try {const d = await updatePurchaseOrder(id, action); setMessage(d.message); await loadOrders(); onOrderApproved?.();}
+    catch(e: any) {setMessage(e.message);} finally {setWorkingOrder(null);}
+  };
   const handleApprove = async (r: any) => {
     setApprovingId(r.item_id);
     try {
-      const res = await approvePurchaseOrder(r.item_id, r.supplier_id, r.suggested_qty, r.unit_cost);
-
-      // Create local approved order entry immediately
-      const approvedRecord = {
-        id: res?.po_id || Date.now(),
-        item_id: r.item_id,
-        item_name: r.item_name,
-        supplier_name: r.supplier_name || "Qualified Medical Supplier",
-        quantity: r.suggested_qty,
-        unit_cost: r.unit_cost,
-        total_cost: r.total_estimated_cost ?? r.suggested_qty * r.unit_cost,
-        timestamp: "Just now",
-        status: "ORDER_CONFIRMED",
-        estimated_arrival_days: r.lead_time_days ?? 3,
-      };
-
-      // Remove from pending orders list
-      setPendingOrders((prev) => prev.filter((order) => order.item_id !== r.item_id));
-
-      // Add to approved orders history
-      setApprovedOrders((prev) => [approvedRecord, ...prev]);
-
-      // Show celebratory confirmation banner
-      setSuccessBanner(
-        `Purchase Order for ${r.suggested_qty} units of ${r.item_name} has been approved and placed with ${r.supplier_name} ($${(
-          r.total_estimated_cost ?? r.suggested_qty * r.unit_cost
-        ).toFixed(2)})!`
-      );
-
-      // Notify parent to refresh inventory stock counts
+      await approvePurchaseOrder(r.item_id, r.supplier_id, r.suggested_qty, r.unit_cost);
+      setMessage(`Order approved for ${r.item_name}. It is listed below under approved orders; stock changes after receipt.`);
+      await loadOrders();
       if (onOrderApproved) onOrderApproved();
     } catch (err) {
-      // Graceful fallback for offline demo
-      setPendingOrders((prev) => prev.filter((order) => order.item_id !== r.item_id));
-      setSuccessBanner(`Purchase Order for ${r.suggested_qty} units of ${r.item_name} approved!`);
-      if (onOrderApproved) onOrderApproved();
+      alert("Failed to submit approval.");
     } finally {
       setApprovingId(null);
     }
   };
 
-  const totalProcurementBudget = pendingOrders.reduce((sum, r) => sum + (r.total_estimated_cost || 0), 0);
+  const totalProcurementBudget = reorders.reduce((sum, r) => sum + (r.total_estimated_cost || 0), 0);
 
   return (
     <div className="space-y-6">
-      {/* Success Notification Banner when Order is Approved (Point 1) */}
-      {successBanner && (
-        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-950 flex items-center justify-between gap-3 shadow-xs animate-slide-in">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-emerald-600 text-white">
-              <Check className="w-5 h-5 stroke-[3]" />
-            </div>
-            <div>
-              <div className="font-extrabold text-sm text-emerald-900">
-                Order Approved & Dispatched to Supplier!
-              </div>
-              <p className="text-xs text-emerald-700 mt-0.5">{successBanner}</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setSuccessBanner(null)}
-            className="text-xs font-bold px-3 py-1.5 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
+      {message && <p role="status" className="p-4 rounded-xl bg-sky-50 text-sky-900 border border-sky-200 text-sm">{message}</p>}
       {/* Header */}
       <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-2">
@@ -129,10 +68,10 @@ export default function ProcurementView({
           </div>
           <div>
             <h2 className="text-base font-bold text-slate-900 tracking-tight">
-              Purchase Orders & Supplier Management
+              Purchasing & Order Planning
             </h2>
             <p className="text-xs text-slate-500">
-              Automated reorder replenishment recommendations and qualified supplier scorecards
+              Recommended quantities, supplier reliability, and delivery times
             </p>
           </div>
         </div>
@@ -140,7 +79,7 @@ export default function ProcurementView({
         <div className="flex items-center gap-3">
           <div className="text-right">
             <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
-              Pending Reorder Budget
+              Recommended purchase budget
             </span>
             <span className="text-lg font-black text-slate-900 font-mono">
               ${totalProcurementBudget.toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -149,151 +88,91 @@ export default function ProcurementView({
         </div>
       </div>
 
-      {/* Main Grid: Recommended Purchase Orders + Supplier Scorecards */}
+      {/* Grid: Recommended Purchase Orders + Supplier Scorecards */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Purchase Orders Column (7 cols) */}
+        {/* Recommended Reorders List (7 cols) */}
         <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-sky-600" />
-              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
-                <button
-                  onClick={() => setActiveTab("PENDING")}
-                  className={`px-3 py-1 rounded-lg transition-all ${
-                    activeTab === "PENDING"
-                      ? "bg-white text-slate-900 shadow-xs font-bold"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  Pending Approval ({pendingOrders.length})
-                </button>
-                <button
-                  onClick={() => setActiveTab("APPROVED")}
-                  className={`px-3 py-1 rounded-lg transition-all ${
-                    activeTab === "APPROVED"
-                      ? "bg-white text-slate-900 shadow-xs font-bold"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  Approved Orders ({approvedOrders.length})
-                </button>
-              </div>
-            </div>
-
-            <span className="text-xs text-slate-500">
-              {activeTab === "PENDING" ? "Requires Officer Sign-off" : "Sent to Suppliers"}
+              Recommended Purchase Orders ({reorders.length})
+            </h3>
+            <span className="text-xs font-mono text-slate-400">
+              Quantities balance ordering and storage costs
             </span>
           </div>
 
-          {/* Pending Orders Tab */}
-          {activeTab === "PENDING" && (
-            <div className="space-y-3">
-              {pendingOrders.length === 0 ? (
-                <div className="py-12 text-center text-slate-400 space-y-2">
-                  <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto" />
-                  <p className="text-xs font-medium text-slate-700">All replenishment orders approved</p>
-                  <p className="text-[11px] text-slate-400">Inventory levels conform to safety buffer targets</p>
-                </div>
-              ) : (
-                pendingOrders.map((r) => (
-                  <div
-                    key={r.item_id}
-                    className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-all space-y-3"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-xs text-slate-900">{r.item_name}</span>
-                          <span
-                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
-                              r.urgency === "CRITICAL"
-                                ? "bg-rose-100 text-rose-800 border border-rose-200"
-                                : "bg-amber-100 text-amber-800 border border-amber-200"
-                            }`}
-                          >
-                            {r.urgency === "CRITICAL" ? "Urgent Shortage" : "Standard Reorder"}
-                          </span>
-                        </div>
-                        <span className="text-[10px] font-mono text-slate-400">
-                          Item Code: {r.sku} • Current Stock: {r.current_stock} (Safe Minimum: {r.reorder_point})
-                        </span>
-                      </div>
-
-                      <div className="text-right">
-                        <div className="text-xs font-bold text-slate-900 font-mono">
-                          ${(r.total_estimated_cost ?? r.suggested_qty * r.unit_cost).toFixed(2)}
-                        </div>
-                        <span className="text-[10px] text-slate-500">
-                          {r.suggested_qty} units @ ${r.unit_cost}/unit
-                        </span>
-                      </div>
-                    </div>
-
-                    <p className="text-xs text-slate-600 bg-white p-2.5 rounded-lg border border-slate-200 leading-relaxed font-medium">
-                      {r.reason || "Stock has breached safe minimum threshold. Recommended batch ordered to replenish runway."}
-                    </p>
-
-                    <div className="flex items-center justify-between text-xs pt-1">
-                      <div className="flex items-center gap-2 text-[11px] text-slate-600 font-medium">
-                        <Building className="w-3.5 h-3.5 text-slate-400" />
-                        <span>{r.supplier_name || "MediPharma Global"} (~{r.lead_time_days ?? 3} days delivery)</span>
-                      </div>
-
-                      {/* Working 1-Click Approval Button (Point 1) */}
-                      <button
-                        onClick={() => handleApprove(r)}
-                        disabled={approvingId === r.item_id}
-                        className="px-4 py-2 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-sm"
-                      >
-                        {approvingId === r.item_id ? (
-                          "Approving..."
-                        ) : (
-                          <>
-                            <Check className="w-3.5 h-3.5 text-emerald-400" />
-                            Approve Purchase Order
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-
-          {/* Approved Orders History Tab */}
-          {activeTab === "APPROVED" && (
-            <div className="space-y-3">
-              {approvedOrders.length === 0 ? (
-                <div className="py-12 text-center text-slate-400 text-xs">
-                  No purchase orders approved yet in this session
-                </div>
-              ) : (
-                approvedOrders.map((ord) => (
-                  <div
-                    key={ord.id}
-                    className="p-3.5 rounded-xl border border-emerald-200 bg-emerald-50/50 flex items-center justify-between gap-3 text-xs"
-                  >
+          <div className="space-y-3">
+            {reorders.length === 0 ? (
+              <div className="py-12 text-center text-slate-400 space-y-2">
+                <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto" />
+                <p className="text-xs font-medium text-slate-600">All replenishment orders satisfied</p>
+                <p className="text-[11px] text-slate-400">Inventory levels conform to target safety buffers</p>
+              </div>
+            ) : (
+              reorders.map((r) => (
+                <div
+                  key={r.item_id}
+                  className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-all space-y-3"
+                >
+                  <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="flex items-center gap-2">
-                        <strong className="text-slate-900">{ord.item_name}</strong>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                          Order Confirmed
+                        <span className="font-bold text-xs text-slate-900">{r.item_name}</span>
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase ${
+                            r.urgency === "CRITICAL"
+                              ? "bg-rose-100 text-rose-800 border border-rose-200"
+                              : "bg-amber-100 text-amber-800 border border-amber-200"
+                          }`}
+                        >
+                          {r.urgency}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-600 mt-0.5">
-                        Supplier: {ord.supplier_name} • {ord.quantity} units (${Number(ord.total_cost).toFixed(2)})
-                      </p>
+                      <span className="text-[10px] font-mono text-slate-400">
+                        Item code: {r.sku} • Current Stock: {r.current_stock} (Reorder level: {r.reorder_point})
+                      </span>
                     </div>
 
-                    <div className="text-right text-[11px] text-slate-500 font-mono">
-                      <span>{ord.timestamp}</span>
+                    <div className="text-right">
+                      <div className="text-xs font-bold text-slate-900 font-mono">
+                        ${(r.total_estimated_cost ?? r.suggested_qty * r.unit_cost).toFixed(2)}
+                      </div>
+                      <span className="text-[10px] text-slate-400">
+                        {r.suggested_qty} units @ ${r.unit_cost}
+                      </span>
                     </div>
                   </div>
-                ))
-              )}
-            </div>
-          )}
+
+                  <p className="text-xs text-slate-600 bg-white p-2.5 rounded-lg border border-slate-200 leading-relaxed font-mono text-[11px]">
+                    {r.reason || "Stock has breached safety replenishment threshold. Supplier lead time factor applied."}
+                  </p>
+
+                  <div className="flex items-center justify-between text-xs pt-1">
+                    <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                      <Building className="w-3.5 h-3.5 text-slate-400" />
+                      <span>{r.supplier_name || "MediPharma Global"} ({r.lead_time_days ?? 3} days delivery)</span>
+                    </div>
+
+                    <button
+                      onClick={() => handleApprove(r)}
+                      disabled={approvingId === r.item_id}
+                      className="px-3.5 py-1.5 rounded-lg bg-slate-900 text-white font-semibold text-xs hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center gap-1.5"
+                    >
+                      {approvingId === r.item_id ? (
+                        "Approving..."
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          Approve order
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
         {/* Qualified Supplier Scorecards (5 cols) */}
@@ -319,23 +198,23 @@ export default function ProcurementView({
                   </div>
                   <div className="flex items-center gap-1 bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded-md border border-emerald-200 text-xs font-bold font-mono">
                     <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
-                    {Math.round((sup.reliability_score ?? 0.95) * 100)}% Reliable
+                    {Math.round((sup.reliability_score ?? 0.95) * 100)}%
                   </div>
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 text-center text-[10px] font-mono bg-white p-2 rounded-lg border border-slate-200">
                   <div>
-                    <span className="text-slate-400 block font-sans">Avg Delivery</span>
+                    <span className="text-slate-400 block">Lead Time</span>
                     <strong className="text-slate-800">{sup.avg_lead_time_days ?? 2.5} days</strong>
                   </div>
                   <div>
-                    <span className="text-slate-400 block font-sans">On-Time Rate</span>
+                    <span className="text-slate-400 block">On-time delivery</span>
                     <strong className="text-emerald-700">
                       {Math.round((sup.on_time_delivery_rate ?? 0.98) * 100)}%
                     </strong>
                   </div>
                   <div>
-                    <span className="text-slate-400 block font-sans">Compliance</span>
+                    <span className="text-slate-400 block">Compliance</span>
                     <strong className="text-slate-800">
                       {Math.round((sup.quality_compliance ?? 0.99) * 100)}%
                     </strong>
@@ -346,6 +225,10 @@ export default function ProcurementView({
           </div>
         </div>
       </div>
+      <section className="p-5 bg-white border rounded-2xl space-y-3"><h3 className="font-bold text-sm">Purchase order history</h3><p className="text-xs text-slate-500">Approval places an order. Record delivery to add the received batch to stock, or cancel the order.</p>
+        {orders.length === 0 && <p className="text-sm text-slate-500">No saved orders yet.</p>}
+        {orders.map(o => <div key={o.id} className="p-3 border rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs"><div><strong>Order #{o.id}: {o.item_name}</strong><p>{o.suggested_qty} units · {o.supplier_name} · {o.status}</p>{o.status === "APPROVED" && <p className="text-sky-800 font-semibold mt-1">{arrivalText(o)} · {new Date(o.expected_arrival_at).toLocaleDateString()}</p>}</div>{o.status === "APPROVED" && <div className="flex gap-2"><button disabled={workingOrder !== null} className="px-3 py-2 rounded-lg bg-slate-900 text-white disabled:opacity-50" onClick={() => handleOrder(o.id,"receive")}>Record delivery</button><button disabled={workingOrder !== null} className="px-3 py-2 border rounded-lg disabled:opacity-50" onClick={() => handleOrder(o.id,"cancel")}>Cancel order</button></div>}</div>)}
+      </section>
     </div>
   );
 }

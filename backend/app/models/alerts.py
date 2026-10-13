@@ -54,3 +54,7 @@ class ReorderRecommendation(Base):
     status = Column(String(50), default="PROPOSED")  # PROPOSED, APPROVED, ORDERED, REJECTED
     reasoning = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+from sqlalchemy import Index, text
+Index("uq_active_order_per_item", ReorderRecommendation.item_id, unique=True,
+      sqlite_where=text("status = 'APPROVED'"), postgresql_where=text("status = 'APPROVED'"))

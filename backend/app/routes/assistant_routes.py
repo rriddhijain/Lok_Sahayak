@@ -8,6 +8,7 @@ from backend.app.database import get_db
 from backend.app.models.inventory import Item, Batch
 from backend.app.models.hospital import Hospital
 from backend.app.models.alerts import AIPreparednessAlert, ReorderRecommendation
+from backend.app.models.transactions import DailyConsumptionSummary
 from backend.app.models.supplier import Supplier
 from backend.app.schemas.chat_schemas import (
     AssistantQueryRequest, AssistantQueryResponse
@@ -37,7 +38,9 @@ async def query_antigravity_assistant(
     items_data = []
     batches_data = []
     for item in items:
-        risk_info = RiskAndExpiryEngine.compute_composite_risk_score(item, item.batches)
+        hist = (await db.execute(select(DailyConsumptionSummary).where(DailyConsumptionSummary.item_id == item.id).order_by(DailyConsumptionSummary.date.desc()).limit(30))).scalars().all()
+        daily_rate = sum(h.total_consumed for h in hist) / len(hist) if hist else 0
+        risk_info = RiskAndExpiryEngine.compute_composite_risk_score(item, item.batches, daily_run_rate=daily_rate)
         items_data.append({
             "id": item.id,
             "item_code": item.item_code,
@@ -83,24 +86,8 @@ async def query_antigravity_assistant(
         for h in hospitals
     ]
 
-    items_map = {i.id: i.name for i in items}
-    reorders_res = await db.execute(select(ReorderRecommendation))
-    reorders = reorders_res.scalars().all()
-    suppliers_res = await db.execute(select(Supplier))
-    suppliers_map = {s.id: s.name for s in suppliers_res.scalars().all()}
-
-    reorders_data = [
-        {
-            "item_id": r.item_id,
-            "item_name": items_map.get(r.item_id, "Medical Supply"),
-            "suggested_qty": r.suggested_qty,
-            "supplier_name": suppliers_map.get(r.supplier_id, "Standard Vendor"),
-            "total_estimated_cost": r.total_estimated_cost,
-            "lead_time_days": r.supplier_lead_time_days,
-            "urgency_score": r.urgency_score
-        }
-        for r in reorders
-    ]
+    from backend.app.routes.optimization_routes import get_reorder_recommendations
+    reorders_data = await get_reorder_recommendations(db=db)
 
     alerts_res = await db.execute(select(AIPreparednessAlert).where(AIPreparednessAlert.is_active == True))
     alerts = alerts_res.scalars().all()

@@ -17,6 +17,8 @@ from backend.app.schemas.inventory_schemas import (
 from backend.app.services.risk_expiry import RiskAndExpiryEngine
 from backend.app.services.anomaly_detection import InventoryAnomalyDetector
 from backend.app.services.sse_websocket import broadcaster
+from backend.app.services.order_delivery import delivery_estimate
+from backend.app.models.alerts import ReorderRecommendation
 
 router = APIRouter(prefix="/api/inventory", tags=["Inventory & Consumables"])
 
@@ -78,12 +80,17 @@ async def list_items(
     items = result.scalars().all()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
+    approved_orders = (await db.execute(select(ReorderRecommendation).where(ReorderRecommendation.status == "APPROVED"))).scalars().all()
+    incoming = {o.item_id: {"id": o.id, "quantity": o.suggested_qty, "lead_time_days": o.supplier_lead_time_days, **delivery_estimate(o)} for o in approved_orders}
     output = []
     for item in items:
         risk_info = RiskAndExpiryEngine.compute_composite_risk_score(item, item.batches)
         if risk_level and risk_info["risk_level"] != risk_level:
             continue
 
+        hist = (await db.execute(select(DailyConsumptionSummary).where(DailyConsumptionSummary.item_id == item.id).order_by(DailyConsumptionSummary.date.desc()).limit(30))).scalars().all()
+        daily_rate = sum(h.total_consumed for h in hist) / len(hist) if hist else 0
+        risk_info = RiskAndExpiryEngine.compute_composite_risk_score(item, item.batches, daily_run_rate=daily_rate)
         batch_list = []
         for b in item.batches:
             days_exp = (b.expiry_date - now).days
@@ -114,6 +121,7 @@ async def list_items(
         output.append({
             "id": item.id,
             "item_code": item.item_code,
+            "incoming_order": incoming.get(item.id),
             "name": item.name,
             "category": item.category,
             "unit": item.unit,
@@ -128,7 +136,10 @@ async def list_items(
             "stock_status": risk_info["stock_status"],
             "composite_risk_score": risk_info["composite_risk_score"],
             "risk_level": risk_info["risk_level"],
-            "days_of_stock_left": risk_info["days_of_stock_left"],
+            "risk_factors": {"stock_out_risk": risk_info["stockout_risk_score"] / 100, "expiry_risk": risk_info["expiry_risk_score"] / 100,
+                "lead_time_risk": risk_info["supplier_risk_score"] / 100, "trauma_weight": 1.0, "formula": risk_info["explainability"]},
+            "daily_run_rate": round(daily_rate, 2),
+            "days_of_stock_left": round(item.current_stock / daily_rate, 1) if daily_rate else None,
             "batches": batch_list,
             "created_at": item.created_at,
             "updated_at": item.updated_at
@@ -225,10 +236,14 @@ async def record_stock_movement(req: StockAdjustmentRequest, db: AsyncSession = 
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
+    if req.transaction_type not in {"CONSUMPTION", "RECEIPT", "TRANSFER", "EMERGENCY_DISPATCH", "DISPOSAL"}:
+        raise HTTPException(422, "Unknown stock movement type")
+    if req.transaction_type != "RECEIPT" and batch.expiry_date <= now:
+        raise HTTPException(400, "Expired batches cannot be dispensed")
     # Update quantities
-    if req.transaction_type == "CONSUMPTION":
+    if req.transaction_type != "RECEIPT":
         qty = abs(req.quantity)
-        if batch.remaining_quantity < qty:
+        if batch.remaining_quantity < qty or item.current_stock < qty:
             raise HTTPException(status_code=400, detail=f"Insufficient batch quantity. Available: {batch.remaining_quantity}")
         batch.remaining_quantity -= qty
         item.current_stock -= qty
@@ -310,7 +325,7 @@ async def record_stock_movement(req: StockAdjustmentRequest, db: AsyncSession = 
 @router.post("/fefo-allocate", response_model=FEFOAllocationResponse)
 async def allocate_fefo(
     item_id: int = Query(...),
-    quantity: int = Query(...),
+    quantity: int = Query(..., gt=0),
     db: AsyncSession = Depends(get_db)
 ):
     """Computes a First-Expired, First-Out (FEFO) dispensing plan."""
@@ -324,3 +339,41 @@ async def allocate_fefo(
 
     allocation = RiskAndExpiryEngine.allocate_fefo(item.id, item.name, batches, quantity)
     return allocation
+
+@router.post("/dispense")
+async def dispense_batches(item_id: int = Query(...), quantity: int = Query(..., gt=0), db: AsyncSession = Depends(get_db)):
+    """Recalculate and commit the entire earliest-expiry allocation in one transaction."""
+    from sqlalchemy import update
+    item = await db.get(Item, item_id)
+    if not item:
+        raise HTTPException(404, "Item not found")
+    batches = (await db.execute(select(Batch).where(Batch.item_id == item_id))).scalars().all()
+    plan = RiskAndExpiryEngine.allocate_fefo(item.id, item.name, batches, quantity)
+    if plan["unfulfilled_quantity"]:
+        raise HTTPException(409, "Not enough unexpired stock to fulfill the complete request")
+    changed = await db.execute(update(Item).where(Item.id == item_id, Item.current_stock >= quantity).values(current_stock=Item.current_stock-quantity))
+    if changed.rowcount != 1:
+        raise HTTPException(409, "Stock changed; refresh before dispensing")
+    for allocation in plan["allocations"]:
+        bid, qty = allocation["batch_id"], allocation["allocated_quantity"]
+        changed = await db.execute(update(Batch).where(Batch.id == bid, Batch.remaining_quantity >= qty).values(remaining_quantity=Batch.remaining_quantity-qty))
+        if changed.rowcount != 1:
+            raise HTTPException(409, "Batch stock changed; refresh before dispensing")
+        db.add(StockTransaction(item_id=item_id, batch_id=bid, transaction_type="CONSUMPTION", quantity=-qty,
+                                department="Clinical Dispensing", notes="Earliest-expiry batch dispensing"))
+    hist = (await db.execute(select(DailyConsumptionSummary).where(DailyConsumptionSummary.item_id == item_id).order_by(DailyConsumptionSummary.date.desc()).limit(30))).scalars().all()
+    anomaly = InventoryAnomalyDetector.detect_consumption_anomaly(item.id, item.name, float(quantity), [float(h.total_consumed) for h in hist])
+    if anomaly:
+        db.add(InventoryAnomaly(item_id=item.id, anomaly_type=anomaly["anomaly_type"], consumption_value=anomaly["consumption_value"],
+            expected_baseline=anomaly["expected_baseline"], z_score=anomaly["z_score"], deviation_pct=anomaly["deviation_pct"],
+            flagged_reason=anomaly["flagged_reason"], status="PENDING_REVIEW"))
+    today = datetime.now(timezone.utc).date()
+    daily = (await db.execute(select(DailyConsumptionSummary).where(DailyConsumptionSummary.item_id == item_id, DailyConsumptionSummary.date == today))).scalars().first()
+    if daily:
+        daily.total_consumed += quantity
+    else:
+        db.add(DailyConsumptionSummary(item_id=item_id, date=today, total_consumed=quantity, stock_at_end_of_day=item.current_stock))
+    await db.commit()
+    await broadcaster.broadcast("INVENTORY_UPDATE", {"item_name":item.name, "quantity_changed":-quantity,
+        "current_stock":item.current_stock, "transaction_type":"CONSUMPTION", "has_anomaly":bool(anomaly), "anomaly":anomaly})
+    return {"success":True, "dispensed":quantity}
