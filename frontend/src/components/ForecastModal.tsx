@@ -27,7 +27,7 @@ export default function ForecastModal({ itemId, onClose }: ForecastModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="glass-panel w-full max-w-4xl p-6 space-y-5 max-h-[92vh] overflow-y-auto border-slate-700">
+      <div className="bg-slate-950 rounded-2xl shadow-xl border w-full max-w-4xl p-6 space-y-5 max-h-[92vh] overflow-y-auto border-slate-700">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <div className="flex items-center gap-3">

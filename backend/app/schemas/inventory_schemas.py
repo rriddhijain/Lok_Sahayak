@@ -55,7 +55,7 @@ class ItemResponse(ItemBase):
         from_attributes = True
 
 class StockAdjustmentRequest(BaseModel):
-    quantity: int
+    quantity: int = Field(gt=0)
     transaction_type: str = "CONSUMPTION"  # "CONSUMPTION", "RECEIPT", "TRANSFER", "EMERGENCY_DISPATCH"
     batch_id: Optional[int] = None
     department: str = "Emergency Dept"

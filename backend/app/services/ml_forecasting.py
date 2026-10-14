@@ -123,7 +123,7 @@ class DemandForecaster:
 
         # Multi-feature regression model: Trend (t) + Day-of-week seasonality (7 columns) + Lag-1, Lag-7
         # One-hot encode day of week
-        dow_onehot = pd.get_dummies(df['date'].dt.dayofweek, drop_first=False).values
+        dow_onehot = pd.get_dummies(df['date'].dt.dayofweek, drop_first=False).reindex(columns=range(7), fill_value=0).values
         # Lag 1 and Lag 7 features (with forward fill for first few rows)
         lag1 = np.roll(values, 1)
         lag1[0] = values[0]
@@ -220,7 +220,7 @@ class DemandForecaster:
                 stock_out_date = (last_date + timedelta(days=int(stock_out_days))).strftime("%Y-%m-%d")
 
         return {
-            "model_used": "ARIMA-Decomposed Ridge with Seasonality & Lags",
+            "model_used": "Ridge Regression with Seasonality & Lags",
             "daily_run_rate": round(avg_daily_demand, 2),
             "mae": round(mae, 2),
             "rmse": round(rmse, 2),

@@ -35,7 +35,7 @@ class AntigravityInventoryAgent:
 
         # 1. EXPIRY OR FEFO QUERY
         if any(w in q_lower for w in ["expir", "fefo", "shelf life", "waste", "batch"]):
-            near_expiring = [b for b in batches if b.get("days_to_expiry", 999) <= 90]
+            near_expiring = [b for b in batches if 0 < b.get("days_to_expiry", 999) <= 90 and b.get("remaining_quantity", 0) > 0]
             near_expiring.sort(key=lambda b: b.get("days_to_expiry", 999))
 
             if near_expiring:
@@ -52,7 +52,7 @@ class AntigravityInventoryAgent:
                         "metric": f"{b['days_to_expiry']} days left"
                     })
 
-                lines.append("\n**FEFO Recommendation**: All dispensing stations have been routed to prioritize these batches under First-Expired, First-Out allocation.")
+                lines.append("\n**First Expiring, First Out recommendation**: Review these unexpired batches for earliest-expiry dispensing; no dispensing action has been taken.")
                 reply = "\n".join(lines)
                 suggested_actions = [
                     "Download FEFO Dispensing Manifest",

@@ -8,6 +8,7 @@ from backend.app.models.inventory import Item
 from backend.app.models.transactions import DailyConsumptionSummary
 from backend.app.schemas.forecast_schemas import DemandForecastResponse
 from backend.app.services.ml_forecasting import DemandForecaster
+from backend.app.services.emergency_stock import effective_safety_stock
 
 router = APIRouter(prefix="/api/forecast", tags=["Demand Forecasting & ML"])
 
@@ -86,7 +87,7 @@ async def get_all_forecasts_overview(db: AsyncSession = Depends(get_db)):
             "name": item.name,
             "category": item.category,
             "current_stock": item.current_stock,
-            "safety_stock": item.safety_stock_threshold,
+            "safety_stock": effective_safety_stock(item),
             "estimated_daily_rate": round(avg_rate, 1),
             "days_runway": days_left,
             "urgency": "CRITICAL" if days_left < 7 else ("WARNING" if days_left < 14 else "HEALTHY")
