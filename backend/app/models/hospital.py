@@ -33,3 +33,18 @@ class BedAllocation(Base):
 
     # Relationships
     hospital = relationship("Hospital", back_populates="beds")
+
+class PatientDispatch(Base):
+    __tablename__ = "patient_dispatches"
+    id = Column(Integer, primary_key=True)
+    hospital_id = Column(Integer, ForeignKey("hospitals.id"), nullable=False)
+    bed_type = Column(String(100), nullable=False)
+    patients = Column(Integer, nullable=False)
+    status = Column(String(30), nullable=False, default="DISPATCHED")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class ApplicationState(Base):
+    __tablename__ = "application_state"
+    key = Column(String(100), primary_key=True)
+    value = Column(String(2000), nullable=False)

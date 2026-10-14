@@ -23,7 +23,8 @@ class ReorderOptimizer:
         item: Item,
         predicted_30d_demand: float,
         suppliers: List[Supplier],
-        cost_matrices: List[SupplierCostMatrix]
+        cost_matrices: List[SupplierCostMatrix],
+        surge_multiplier: float = 1.0
     ) -> Optional[Dict[str, Any]]:
         """
         Determines whether a reorder is needed and computes suggested purchase quantity,
@@ -67,7 +68,7 @@ class ReorderOptimizer:
         # Higher buffer for unreliable suppliers or trauma critical items
         rel_buffer = 1.0 + (1.0 - supplier_rel) * 1.2
         crit_buffer = 1.35 if item.is_trauma_critical else 1.0
-        effective_safety_stock = int(item.safety_stock_threshold * rel_buffer * crit_buffer)
+        effective_safety_stock = int(item.safety_stock_threshold * rel_buffer * crit_buffer * surge_multiplier)
 
         lead_time_demand = daily_demand * lead_time_days
         reorder_point = int(lead_time_demand + effective_safety_stock)
@@ -87,7 +88,7 @@ class ReorderOptimizer:
 
         # Bulk discount evaluation
         bulk_applied = False
-        if best_matrix and best_matrix.bulk_discount_threshold:
+        if best_matrix and best_matrix.bulk_discount_threshold and best_matrix.discounted_unit_cost and best_matrix.discounted_unit_cost > 0:
             bulk_thresh = best_matrix.bulk_discount_threshold
             # If within 25% of bulk tier, calculate if bulk tier is financially advantageous
             if suggested_qty >= bulk_thresh * 0.75:
@@ -120,10 +121,10 @@ class ReorderOptimizer:
         urgency = round(urgency, 2)
 
         reasoning = (
-            f"ROP Trigger: Current stock ({item.current_stock}) vs ROP ({reorder_point}). "
+            f"Reorder check: Current stock ({item.current_stock}) vs reorder level ({reorder_point}). "
             f"Calculated from Lead Time Demand ({lead_time_demand:.1f} = {daily_demand:.1f}/day × {lead_time_days}d) "
             f"+ Safety Buffer ({effective_safety_stock} units, adjusted for {supplier_rel*100:.0f}% supplier reliability). "
-            f"EOQ calculated as {int(eoq)} units. "
+            f"Economic Order Quantity calculated as {int(eoq)} units. "
             f"{'Bulk tier applied (' + str(best_matrix.bulk_discount_threshold) + ' units at discounted $' + str(unit_price) + ').' if bulk_applied else ''}"
         )
 

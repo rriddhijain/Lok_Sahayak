@@ -4,11 +4,12 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
 from backend.app.services.sse_websocket import broadcaster
+from backend.app.services.role_access import ADMIN, ROLES, allows_event
 
 router = APIRouter(prefix="/api/stream", tags=["Real-time SSE & WebSockets"])
 
 @router.get("/sse")
-async def sse_alerts_stream():
+async def sse_alerts_stream(role: str = ADMIN):
     """
     Server-Sent Events (SSE) stream for real-time alerts, stock updates,
     and emergency mode changes. Connect via standard browser EventSource.
@@ -23,6 +24,8 @@ async def sse_alerts_stream():
                 try:
                     # Wait for next event with a 15-second timeout for keep-alive ping
                     payload = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    if not allows_event(role, payload["event"]):
+                        continue
                     yield f"event: {payload['event']}\ndata: {json.dumps(payload['data'])}\n\n"
                 except asyncio.TimeoutError:
                     # Heartbeat comment to keep connection alive
@@ -47,6 +50,9 @@ async def websocket_endpoint(websocket: WebSocket):
     """
     WebSocket endpoint for bidirectional real-time alerts and dashboard notifications.
     """
+    if websocket.headers.get("X-Work-Role", websocket.query_params.get("role", ADMIN)) != ADMIN:
+        await websocket.close(code=1008)
+        return
     await broadcaster.connect_websocket(websocket)
     try:
         await websocket.send_text(json.dumps({

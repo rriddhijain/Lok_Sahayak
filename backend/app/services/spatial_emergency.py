@@ -123,7 +123,7 @@ class SpatialEmergencyEngine:
         deficit_count = 0
 
         for item in critical_items:
-            surge_threshold = int(item.safety_stock_threshold * surge_multiplier)
+            surge_threshold = math.ceil(item.safety_stock_threshold * surge_multiplier)
             deficit = max(0, surge_threshold - item.current_stock)
             is_deficit = deficit > 0
             if is_deficit:

@@ -6,7 +6,11 @@ export interface InventoryItem {
   current_stock: number;
   unit: string;
   safety_threshold: number;
+  baseline_safety_stock_threshold?: number;
+  reserve_multiplier?: number;
   unit_cost: number;
+  incoming_order?: {id: number; quantity: number; lead_time_days: number; expected_arrival_at: string; days_until_arrival: number; overdue_days: number; delivery_status: string} | null;
+  storage_temp_c?: number | null;
   cold_chain_required: boolean;
   trauma_critical: boolean;
   status: "OPTIMAL" | "LOW_STOCK" | "STOCKOUT" | "EXPIRING_SOON";
@@ -87,6 +91,8 @@ export interface NetworkHospital {
   oxygen_beds_available: number;
   distance_km?: number;
   estimated_transit_mins?: number;
+  contact_phone?: string;
+  beds?: {bed_type: string; total_capacity: number; available_beds: number; occupied_beds: number}[];
   last_sync_timestamp: string;
 }
 

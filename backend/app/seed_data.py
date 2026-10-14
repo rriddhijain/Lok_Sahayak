@@ -398,7 +398,7 @@ async def seed_database():
                     batch_number=f"BAT-{item.item_code[-6:]}-CRIT",
                     item_id=item.id,
                     initial_quantity=25,
-                    remaining_quantity=int(item.current_stock * 0.1) or 8,
+                    remaining_quantity=item.current_stock - int(item.current_stock * 0.6) - int(item.current_stock * 0.3),
                     manufacturing_date=now - timedelta(days=340),
                     expiry_date=now + timedelta(days=22),
                     unit_purchase_price=item.unit_cost,
@@ -419,6 +419,9 @@ async def seed_database():
                     supplier_id=suppliers_data[1].id
                 )
                 session.add(b_exp)
+
+            if idx not in [0, 5, 7, 9]:
+                b1.remaining_quantity += item.current_stock - b1.remaining_quantity - b2.remaining_quantity - (4 if idx == 1 else 0)
 
         await session.flush()
 

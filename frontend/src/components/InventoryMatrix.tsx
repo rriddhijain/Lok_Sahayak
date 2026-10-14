@@ -5,66 +5,65 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Boxes,
   Search,
+  Filter,
+  AlertTriangle,
   ChevronDown,
   ChevronUp,
   Clock,
   Sparkles,
+  TrendingDown,
+  TrendingUp,
   Snowflake,
   ShieldAlert,
   Calendar,
+  CheckCircle2,
+  ExternalLink,
   ShoppingCart,
   Layers,
-  TrendingUp,
-  X,
-  CheckCircle2,
+  ArrowUpRight,
+  Info,
 } from "lucide-react";
+import { arrivalText } from "@/lib/roles";
 import { InventoryItem, BatchItem } from "@/lib/types";
 
 interface InventoryMatrixProps {
+  allowForecast?: boolean;
   items: InventoryItem[];
   batches?: BatchItem[];
-  searchQuery?: string;
-  onSearchChange?: (val: string) => void;
   onSelectItemForecast: (itemId: number) => void;
   onOpenFEFOModal: (item: InventoryItem) => void;
   onInstantReorder?: (item: InventoryItem) => void;
 }
 
 export default function InventoryMatrix({
+  allowForecast = true,
   items,
   batches = [],
-  searchQuery = "",
-  onSearchChange,
   onSelectItemForecast,
   onOpenFEFOModal,
   onInstantReorder,
 }: InventoryMatrixProps) {
-  const [localSearch, setLocalSearch] = useState("");
+  const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("ALL");
   const [riskFilter, setRiskFilter] = useState<"ALL" | "CRITICAL" | "WARNING" | "OPTIMAL">("ALL");
   const [expandedItemId, setExpandedItemId] = useState<number | null>(null);
-
-  // Use either the global search from TopHeader or local search
-  const effectiveSearch = searchQuery || localSearch;
 
   // Extract unique categories
   const categories = ["ALL", ...Array.from(new Set(items.map((i) => i.category)))];
 
   // Filtering logic
   const filteredItems = items.filter((item) => {
-    const query = effectiveSearch.toLowerCase().trim();
     const matchesSearch =
-      !query ||
-      item.name.toLowerCase().includes(query) ||
-      item.sku.toLowerCase().includes(query) ||
-      item.category.toLowerCase().includes(query);
+      item.name.toLowerCase().includes(search.toLowerCase()) ||
+      item.sku.toLowerCase().includes(search.toLowerCase()) ||
+      item.category.toLowerCase().includes(search.toLowerCase());
 
     const matchesCategory = selectedCategory === "ALL" || item.category === selectedCategory;
 
     let matchesRisk = true;
-    if (riskFilter === "CRITICAL") matchesRisk = item.risk_score >= 70;
-    else if (riskFilter === "WARNING") matchesRisk = item.risk_score >= 40 && item.risk_score < 70;
-    else if (riskFilter === "OPTIMAL") matchesRisk = item.risk_score < 40;
+    if (riskFilter === "CRITICAL") matchesRisk = item.risk_score >= 70 || item.current_stock < item.safety_threshold;
+    else if (riskFilter === "WARNING") matchesRisk = item.risk_score >= 40 && item.risk_score < 70 && item.current_stock >= item.safety_threshold;
+    else if (riskFilter === "OPTIMAL") matchesRisk = item.risk_score < 40 && item.current_stock >= item.safety_threshold;
 
     return matchesSearch && matchesCategory && matchesRisk;
   });
@@ -82,14 +81,14 @@ export default function InventoryMatrix({
             <div className="flex items-center gap-2">
               <Boxes className="w-5 h-5 text-sky-600" />
               <h2 className="text-base font-bold text-slate-900 tracking-tight">
-                Medicine & Hospital Supply Inventory
+                Medicine Inventory
               </h2>
               <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 font-semibold">
                 {filteredItems.length} items
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Real-time stock quantities, safety thresholds, and earliest-expiry batch tracking
+              View stock levels, storage temperatures, expiry dates, and reorder needs
             </p>
           </div>
 
@@ -114,7 +113,7 @@ export default function InventoryMatrix({
               }`}
             >
               <span className="w-2 h-2 rounded-full bg-rose-500" />
-              Urgent Shortages (&gt;70 Risk)
+              Critical Risk (&gt;70)
             </button>
             <button
               onClick={() => setRiskFilter("WARNING")}
@@ -125,7 +124,7 @@ export default function InventoryMatrix({
               }`}
             >
               <span className="w-2 h-2 rounded-full bg-amber-500" />
-              Expiring / Warning (40-69)
+              Warning (40-69)
             </button>
             <button
               onClick={() => setRiskFilter("OPTIMAL")}
@@ -136,36 +135,22 @@ export default function InventoryMatrix({
               }`}
             >
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              Optimal Stock (&lt;40)
+              Optimal (&lt;40)
             </button>
           </div>
         </div>
 
-        {/* Working Search & Category Pills */}
+        {/* Search & Category Pills */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Filter by medicine name, item code, or category..."
-              value={effectiveSearch}
-              onChange={(e) => {
-                setLocalSearch(e.target.value);
-                if (onSearchChange) onSearchChange(e.target.value);
-              }}
-              className="w-full pl-9 pr-9 py-2 text-xs rounded-xl bg-white border border-slate-200 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all font-medium"
+              placeholder="Search by medicine name, item code, or category..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 text-xs rounded-xl bg-white border border-slate-200 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all"
             />
-            {effectiveSearch && (
-              <button
-                onClick={() => {
-                  setLocalSearch("");
-                  if (onSearchChange) onSearchChange("");
-                }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
           </div>
 
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
@@ -191,11 +176,11 @@ export default function InventoryMatrix({
         <table className="w-full text-left text-xs border-collapse">
           <thead>
             <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
-              <th className="py-3 px-4">Medicine & Storage Condition</th>
+              <th className="py-3 px-4">Item & Clinical Profile</th>
               <th className="py-3 px-4">Category</th>
-              <th className="py-3 px-4">Current Stock vs Safe Level</th>
-              <th className="py-3 px-4">Daily Hospital Usage</th>
-              <th className="py-3 px-4">Shortage Risk Meter</th>
+              <th className="py-3 px-4">Stock vs Buffer</th>
+              <th className="py-3 px-4">Daily Use & Stock Remaining</th>
+              <th className="py-3 px-4">Inventory Risk Score</th>
               <th className="py-3 px-4 text-center">Status</th>
               <th className="py-3 px-4 text-right">Actions</th>
             </tr>
@@ -205,16 +190,17 @@ export default function InventoryMatrix({
               <tr>
                 <td colSpan={7} className="py-12 text-center text-slate-400 space-y-2">
                   <Boxes className="w-8 h-8 text-slate-300 mx-auto stroke-[1.5]" />
-                  <p className="text-xs font-medium text-slate-600">No matching medicines found</p>
-                  <p className="text-[11px] text-slate-400">Try clearing your search query or switching filters</p>
+                  <p className="text-xs font-medium text-slate-600">No medical consumables found</p>
+                  <p className="text-[11px] text-slate-400">Try adjusting your search query or risk filters</p>
                 </td>
               </tr>
             ) : (
               filteredItems.map((item) => {
                 const isExpanded = expandedItemId === item.id;
-                const isCriticalRisk = item.risk_score >= 70;
+                const isCriticalRisk = item.risk_score >= 70 || item.current_stock < item.safety_threshold;
                 const isMediumRisk = item.risk_score >= 40 && item.risk_score < 70;
 
+                // Color tokens for risk gauge
                 const gaugeColor = isCriticalRisk
                   ? "bg-rose-500"
                   : isMediumRisk
@@ -241,7 +227,7 @@ export default function InventoryMatrix({
                         isExpanded ? "bg-sky-50/30" : ""
                       }`}
                     >
-                      {/* Medicine & High-Legibility Temperature Tag */}
+                      {/* Item & Clinical Profile */}
                       <td className="py-3.5 px-4">
                         <div className="flex items-start gap-2.5">
                           <button
@@ -258,35 +244,29 @@ export default function InventoryMatrix({
                             )}
                           </button>
                           <div>
-                            <div className="flex items-center gap-2 flex-wrap">
+                            <div className="flex flex-wrap items-center gap-2">
                               <span className="font-bold text-slate-900 text-xs">
                                 {item.name}
                               </span>
                               {item.trauma_critical && (
                                 <span
-                                  className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200"
-                                  title="Emergency Resuscitation & Trauma Critical Consumable"
+                                  className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200"
+                                  title="Level-1 Trauma Critical Resuscitation Item"
                                 >
-                                  Emergency Trauma
+                                  Trauma
                                 </span>
                               )}
-                              {/* Highly Legible Temperature Storage Badge (Point 5) */}
-                              {item.cold_chain_required ? (
+                              {item.storage_temp_c != null && (
                                 <span
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200 shadow-xs"
-                                  title="Refrigerated cold chain storage strictly required"
+                                  className="text-xs font-semibold px-2 py-1 rounded-md bg-sky-50 text-sky-900 border border-sky-200 flex items-center gap-1.5 whitespace-nowrap"
+                                  title="Configured storage temperature in degrees Celsius"
                                 >
-                                  <Snowflake className="w-3.5 h-3.5 text-blue-600" />
-                                  Cold Storage: 2°C – 8°C
-                                </span>
-                              ) : (
-                                <span className="text-[10px] text-slate-400 font-medium">
-                                  Room Temp (15°C – 25°C)
+                                  <Snowflake className="w-3.5 h-3.5" /> Store at {item.storage_temp_c} °C
                                 </span>
                               )}
                             </div>
                             <span className="font-mono text-[10px] text-slate-400">
-                              Item Code: {item.sku} • ${item.unit_cost.toFixed(2)} per {item.unit}
+                              {item.sku} • ${item.unit_cost.toFixed(2)}/{item.unit}
                             </span>
                           </div>
                         </div>
@@ -294,7 +274,7 @@ export default function InventoryMatrix({
 
                       {/* Category */}
                       <td className="py-3.5 px-4">
-                        <span className="text-slate-700 font-medium">{item.category}</span>
+                        <span className="text-slate-600 font-medium">{item.category}</span>
                       </td>
 
                       {/* Stock vs Buffer */}
@@ -304,8 +284,8 @@ export default function InventoryMatrix({
                             <span className="font-bold text-slate-900">
                               {item.current_stock} {item.unit}
                             </span>
-                            <span className="text-slate-500 text-[10px]">
-                              Safe Minimum: {item.safety_threshold}
+                            <span className="text-slate-400 text-[10px]">
+                              Safe: {item.safety_threshold}
                             </span>
                           </div>
                           <div className="w-28 h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -326,7 +306,7 @@ export default function InventoryMatrix({
                         </div>
                       </td>
 
-                      {/* Burn Rate & Runway */}
+                      {/* Daily Use & Stock Remaining */}
                       <td className="py-3.5 px-4">
                         <div className="space-y-0.5">
                           <div className="font-mono text-slate-800 font-semibold text-[11px]">
@@ -342,8 +322,8 @@ export default function InventoryMatrix({
                               }
                             >
                               {item.days_until_stockout
-                                ? `${item.days_until_stockout.toFixed(1)} days supply left`
-                                : "Stock Healthy"}
+                                ? `${item.days_until_stockout.toFixed(1)} days runway`
+                                : "Nominal"}
                             </span>
                           </div>
                         </div>
@@ -351,18 +331,20 @@ export default function InventoryMatrix({
 
                       {/* Visual Inventory Risk Score Gauge */}
                       <td className="py-3.5 px-4">
-                        <div className="w-24">
-                          <div className="flex items-center justify-between text-[11px] mb-1 font-mono font-bold">
-                            <span className={gaugeText}>{item.risk_score}/100</span>
-                            <span className="text-[10px] text-slate-400 uppercase">
-                              {isCriticalRisk ? "High Risk" : isMediumRisk ? "Warning" : "Safe"}
-                            </span>
-                          </div>
-                          <div className={`w-full h-2 ${gaugeBg} rounded-full overflow-hidden`}>
-                            <div
-                              className={`h-full ${gaugeColor} rounded-full transition-all duration-500`}
-                              style={{ width: `${item.risk_score}%` }}
-                            />
+                        <div className="flex items-center gap-2.5">
+                          <div className="flex-1 w-24">
+                            <div className="flex items-center justify-between text-[11px] mb-1 font-mono font-bold">
+                              <span className={gaugeText}>{item.risk_score}/100</span>
+                              <span className="text-[10px] text-slate-400 uppercase">
+                                {isCriticalRisk ? "High" : isMediumRisk ? "Med" : "Low"}
+                              </span>
+                            </div>
+                            <div className={`w-full h-2 ${gaugeBg} rounded-full overflow-hidden`}>
+                              <div
+                                className={`h-full ${gaugeColor} rounded-full transition-all duration-500`}
+                                style={{ width: `${item.risk_score}%` }}
+                              />
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -371,39 +353,40 @@ export default function InventoryMatrix({
                       <td className="py-3.5 px-4 text-center">
                         <span
                           className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase border ${
-                            isCriticalRisk
+                            item.incoming_order ? "bg-sky-50 text-sky-800 border-sky-200" : isCriticalRisk
                               ? "bg-rose-50 text-rose-700 border-rose-200"
                               : isMediumRisk
                               ? "bg-amber-50 text-amber-800 border-amber-200"
                               : "bg-emerald-50 text-emerald-800 border-emerald-200"
                           }`}
                         >
-                          {isCriticalRisk
+                          {item.incoming_order ? "ORDER APPROVED" : isCriticalRisk
                             ? "LOW STOCK"
                             : isMediumRisk
-                            ? "EXPIRING SOON"
+                            ? "EXPIRING/WARN"
                             : "OPTIMAL"}
                         </span>
+                        {item.incoming_order && <div className="mt-2 space-y-1 text-xs normal-case text-sky-800"><p className="font-semibold">{arrivalText(item.incoming_order)}</p><p>{item.incoming_order.quantity} {item.unit} incoming · {new Date(item.incoming_order.expected_arrival_at).toLocaleDateString()}</p>{item.current_stock < item.safety_threshold && <p className="text-amber-700">Current stock remains below the safety level.</p>}</div>}
                       </td>
 
-                      {/* Actions */}
+                      {/* Row Action Buttons */}
                       <td className="py-3.5 px-4 text-right">
                         <div
                           className="flex items-center justify-end gap-1.5"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <button
+                          {allowForecast && <button
                             onClick={() => onSelectItemForecast(item.id)}
                             className="p-1.5 rounded-lg text-slate-600 hover:text-sky-700 hover:bg-sky-50 border border-slate-200 transition-all"
-                            title="View Demand Forecast Graph"
+                            title="View 30-Day ML Demand Forecast"
                           >
                             <TrendingUp className="w-3.5 h-3.5" />
-                          </button>
+                          </button>}
 
                           <button
                             onClick={() => onOpenFEFOModal(item)}
                             className="p-1.5 rounded-lg text-slate-600 hover:text-teal-700 hover:bg-teal-50 border border-slate-200 transition-all"
-                            title="Simulate Earliest-Expiry Dispensing"
+                            title="Preview dispensing Pick-List Allocation"
                           >
                             <Layers className="w-3.5 h-3.5" />
                           </button>
@@ -412,7 +395,7 @@ export default function InventoryMatrix({
                             <button
                               onClick={() => onInstantReorder(item)}
                               className="p-1.5 rounded-lg bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-200 transition-all"
-                              title="Go to Purchase Orders"
+                              title="Generate Purchase Order"
                             >
                               <ShoppingCart className="w-3.5 h-3.5" />
                             </button>
@@ -421,7 +404,7 @@ export default function InventoryMatrix({
                       </td>
                     </tr>
 
-                    {/* Expandable Explainability Panel (Clear English, No Cryptic Code) */}
+                    {/* Expandable Explainability Panel (Framer Motion 60fps Micro-interaction) */}
                     <AnimatePresence>
                       {isExpanded && (
                         <tr>
@@ -430,19 +413,19 @@ export default function InventoryMatrix({
                               initial={{ opacity: 0, height: 0 }}
                               animate={{ opacity: 1, height: "auto" }}
                               exit={{ opacity: 0, height: 0 }}
-                              transition={{ duration: 0.25, ease: "easeInOut" }}
+                              transition={{ duration: 0.28, ease: "easeInOut" }}
                               className="overflow-hidden bg-slate-50/90 border-t border-slate-200 px-6 py-4 space-y-4"
                             >
                               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                                {/* Clear English Reorder Rationale */}
+                                {/* Explainability Mathematical Formula Card */}
                                 <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs space-y-2">
                                   <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
                                       <Sparkles className="w-4 h-4 text-sky-600" />
-                                      Why is a Reorder Recommended?
+                                      Why stock needs attention
                                     </div>
                                     {item.reorder_recommendation?.confidence_score && (
-                                      <span className="text-[10px] font-bold bg-sky-50 text-sky-700 px-2 py-0.5 rounded border border-sky-200">
+                                      <span className="text-[10px] font-mono font-bold bg-sky-50 text-sky-700 px-2 py-0.5 rounded border border-sky-200">
                                         {Math.round(
                                           item.reorder_recommendation.confidence_score * 100
                                         )}
@@ -453,36 +436,41 @@ export default function InventoryMatrix({
 
                                   <p className="text-xs text-slate-700 leading-relaxed font-medium">
                                     {item.reorder_recommendation?.reason ||
-                                      `Current stock of ${item.current_stock} is lower than the safe minimum of ${item.safety_threshold} units. We recommend replenishing to prevent a complete stock-out.`}
+                                      `Current stock: ${item.current_stock}. Safety threshold: ${item.safety_threshold}. Approved incoming orders are shown in the status column; procurement staff manage new purchases.`}
                                   </p>
 
-                                  <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-1">
+                                  <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 font-mono text-[11px] text-slate-800 space-y-1">
                                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                                      Recommended Reorder:
+                                      Formula Execution:
                                     </span>
-                                    <p className="font-bold text-sky-800">
-                                      {item.reorder_recommendation?.suggested_order_qty || 250}{" "}
-                                      {item.unit} (Optimal Batch Size)
-                                    </p>
+                                    <code>
+                                      {item.reorder_recommendation?.formula_used ||
+                                        "Reorder level = delivery-period demand + adjusted safety stock"}
+                                    </code>
                                   </div>
 
-                                  <div className="text-[10px] text-slate-400">
-                                    Evaluated: {new Date().toLocaleTimeString()}
+                                  <div className="text-[10px] font-mono text-slate-400">
+                                    Calculated timestamp:{" "}
+                                    {item.reorder_recommendation?.calculated_at
+                                      ? new Date(
+                                          item.reorder_recommendation.calculated_at
+                                        ).toLocaleString()
+                                      : new Date().toLocaleString()}
                                   </div>
                                 </div>
 
-                                {/* Risk Breakdown (Human-Friendly) */}
+                                {/* Composite Risk Factor Breakdown */}
                                 <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs space-y-2.5">
                                   <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                                     <ShieldAlert className="w-4 h-4 text-amber-600" />
-                                    What Contributes to the Risk Score?
+                                    Stock risk breakdown
                                   </div>
 
                                   <div className="space-y-2 text-xs">
                                     <div>
                                       <div className="flex justify-between text-[11px] mb-1">
-                                        <span className="text-slate-600">Shortage Depletion Risk</span>
-                                        <span className="font-bold text-rose-600">
+                                        <span className="text-slate-600">Stock shortage risk</span>
+                                        <span className="font-mono font-bold text-rose-600">
                                           {(
                                             (item.risk_factors?.stock_out_risk ??
                                               (item.risk_score > 60 ? 0.9 : 0.2)) * 100
@@ -505,8 +493,8 @@ export default function InventoryMatrix({
 
                                     <div>
                                       <div className="flex justify-between text-[11px] mb-1">
-                                        <span className="text-slate-600">Batch Expiry Risk</span>
-                                        <span className="font-bold text-amber-600">
+                                        <span className="text-slate-600">Expiry risk</span>
+                                        <span className="font-mono font-bold text-amber-600">
                                           {(
                                             (item.risk_factors?.expiry_risk ?? 0.15) * 100
                                           ).toFixed(0)}
@@ -527,8 +515,8 @@ export default function InventoryMatrix({
 
                                     <div>
                                       <div className="flex justify-between text-[11px] mb-1">
-                                        <span className="text-slate-600">Supplier Delivery Delay Risk</span>
-                                        <span className="font-bold text-sky-600">
+                                        <span className="text-slate-600">Supplier delivery risk</span>
+                                        <span className="font-mono font-bold text-sky-600">
                                           {(
                                             (item.risk_factors?.lead_time_risk ?? 0.4) * 100
                                           ).toFixed(0)}
@@ -549,13 +537,19 @@ export default function InventoryMatrix({
                                   </div>
                                 </div>
 
-                                {/* Active Batches (Earliest Expiry First) */}
+                                {/* Active Batches & FEFO Order */}
                                 <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs space-y-2">
                                   <div className="flex items-center justify-between text-xs font-bold text-slate-900">
                                     <div className="flex items-center gap-1.5">
                                       <Calendar className="w-4 h-4 text-emerald-600" />
-                                      Earliest-Expiring Batches (Use First)
+                                      Batches by earliest expiry
                                     </div>
+                                    <button
+                                      onClick={() => onOpenFEFOModal(item)}
+                                      className="text-[10px] text-sky-600 hover:underline font-semibold"
+                                    >
+                                      Preview dispensing
+                                    </button>
                                   </div>
 
                                   <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
@@ -567,11 +561,11 @@ export default function InventoryMatrix({
                                         >
                                           <div>
                                             <span className="font-mono font-bold text-slate-800">
-                                              Batch #{b.batch_number}
+                                              {b.batch_number}
                                             </span>
                                             <div className="text-[10px] text-slate-500">
-                                              Expires: {new Date(b.expiry_date).toLocaleDateString()} (
-                                              {b.days_to_expiry} days remaining)
+                                              Exp: {new Date(b.expiry_date).toLocaleDateString()} (
+                                              {b.days_to_expiry}d left)
                                             </div>
                                           </div>
                                           <div className="text-right">
@@ -579,7 +573,7 @@ export default function InventoryMatrix({
                                               {b.current_quantity} {item.unit}
                                             </span>
                                             {b.is_near_expiry && (
-                                              <span className="text-[9px] block text-amber-600 font-bold">
+                                              <span className="text-[9px] block text-amber-600 font-semibold">
                                                 Expiring Soon
                                               </span>
                                             )}
@@ -587,19 +581,19 @@ export default function InventoryMatrix({
                                         </div>
                                       ))
                                     ) : (
-                                      <div className="p-2.5 rounded-lg bg-slate-50 text-[11px] text-slate-600 text-center">
-                                        Batch #BTH-921 ({item.current_stock} {item.unit}, expires in 42 days)
+                                      <div className="p-2 rounded-lg bg-slate-50 text-[11px] text-slate-500 text-center">
+                                        No batches recorded
                                       </div>
                                     )}
                                   </div>
 
                                   <div className="pt-2 flex items-center justify-end gap-2">
-                                    <button
+                                    {allowForecast && <button
                                       onClick={() => onSelectItemForecast(item.id)}
                                       className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition-all flex items-center gap-1"
                                     >
-                                      View Demand Forecast
-                                    </button>
+                                      Forecast View <ArrowUpRight className="w-3 h-3" />
+                                    </button>}
                                   </div>
                                 </div>
                               </div>

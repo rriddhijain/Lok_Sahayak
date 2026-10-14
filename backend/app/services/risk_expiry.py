@@ -2,6 +2,7 @@ import math
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Tuple
 from backend.app.models.inventory import Item, Batch
+from backend.app.services.emergency_stock import effective_safety_stock
 from backend.app.models.supplier import Supplier
 
 class RiskAndExpiryEngine:
@@ -101,7 +102,7 @@ class RiskAndExpiryEngine:
         Weights: Stockout (45%), Expiry (35%), Supplier Lead Time (20%)
         """
         stockout_prob, days_left, stock_status = cls.calculate_stockout_probability(
-            item.current_stock, item.safety_stock_threshold, daily_run_rate
+            item.current_stock, effective_safety_stock(item), daily_run_rate
         )
 
         expiry_score, batch_details = cls.calculate_expiry_risk(batches)
@@ -143,7 +144,7 @@ class RiskAndExpiryEngine:
             "batch_details": batch_details,
             "explainability": (
                 f"Composite score {composite}/100 derived from: "
-                f"Stock-Out Risk={stockout_prob}% (Current Stock: {item.current_stock}, Safety: {item.safety_stock_threshold}), "
+                f"Stock-Out Risk={stockout_prob}% (Current Stock: {item.current_stock}, Safety: {effective_safety_stock(item)}), "
                 f"Expiry Risk={expiry_score}% (Batches evaluated: {len(batches)}), "
                 f"Supplier Lead-Time Risk={supplier_risk:.1f}%."
             )

@@ -1,744 +1,97 @@
-import {
-  InventoryItem,
-  BatchItem,
-  PreparednessAlert,
-  NetworkHospital,
-  ForecastOverview,
-} from "./types";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-// --- Mock Fallbacks for UI Resilience ---
-const MOCK_SUMMARY = {
-  total_catalog_items: 12,
-  out_of_stock_count: 1,
-  critical_low_count: 3,
-  trauma_critical_items: 7,
-  total_stock_valuation: 148520.0,
-  batches_expiring_30d: 4,
-  batches_expiring_90d: 16,
-  batches_expired: 1,
-  active_alerts_count: 3,
-  emergency_mode_active: false,
-};
-
-const MOCK_ITEMS: InventoryItem[] = [
-  {
-    id: 1,
-    sku: "MED-ABX-001",
-    name: "Ceftriaxone 1g Injectable",
-    category: "Antibiotics",
-    current_stock: 45,
-    unit: "Vials",
-    safety_threshold: 120,
-    unit_cost: 14.5,
-    cold_chain_required: false,
-    trauma_critical: true,
-    status: "LOW_STOCK",
-    risk_score: 88,
-    risk_level: "CRITICAL",
-    risk_factors: {
-      stock_out_risk: 0.92,
-      expiry_risk: 0.15,
-      lead_time_risk: 0.85,
-      trauma_weight: 1.5,
-      formula: "Stockout Risk (92%) + Lead Time Risk (85%)",
-    },
-    reorder_recommendation: {
-      is_reorder_needed: true,
-      reorder_point: 120,
-      suggested_order_qty: 350,
-      confidence_score: 0.94,
-      reason: "Current stock (45) is below minimum safe level (120). Daily hospital usage is 14.2 vials/day with 3-day supplier delivery.",
-      calculated_at: new Date().toISOString(),
-      formula_used: "Safe Level = (Daily Demand × Delivery Days) + Safety Buffer",
-    },
-    daily_burn_rate: 14.2,
-    days_until_stockout: 3.2,
-  },
-  {
-    id: 2,
-    sku: "MED-TRA-002",
-    name: "Tranexamic Acid 500mg/5mL",
-    category: "Trauma & Emergency",
-    current_stock: 18,
-    unit: "Ampoules",
-    safety_threshold: 80,
-    unit_cost: 8.75,
-    cold_chain_required: false,
-    trauma_critical: true,
-    status: "LOW_STOCK",
-    risk_score: 94,
-    risk_level: "CRITICAL",
-    risk_factors: {
-      stock_out_risk: 0.96,
-      expiry_risk: 0.1,
-      lead_time_risk: 0.9,
-      trauma_weight: 2.0,
-      formula: "Urgent emergency demand surge buffer active",
-    },
-    reorder_recommendation: {
-      is_reorder_needed: true,
-      reorder_point: 80,
-      suggested_order_qty: 250,
-      confidence_score: 0.96,
-      reason: "Severe depletion below minimum emergency stock. Only 1.8 days of runway remaining.",
-      calculated_at: new Date().toISOString(),
-      formula_used: "Recommended Reorder Quantity = Optimal Batch Calculation",
-    },
-    daily_burn_rate: 10.0,
-    days_until_stockout: 1.8,
-  },
-  {
-    id: 3,
-    sku: "MED-BLD-003",
-    name: "O-Negative Packed Red Blood Cells",
-    category: "Blood Products",
-    current_stock: 12,
-    unit: "Units",
-    safety_threshold: 25,
-    unit_cost: 210.0,
-    cold_chain_required: true,
-    trauma_critical: true,
-    status: "LOW_STOCK",
-    risk_score: 91,
-    risk_level: "CRITICAL",
-    risk_factors: {
-      stock_out_risk: 0.88,
-      expiry_risk: 0.65,
-      lead_time_risk: 0.78,
-      trauma_weight: 2.5,
-      formula: "Cold chain strict earliest-expiry first + universal donor priority",
-    },
-    reorder_recommendation: {
-      is_reorder_needed: true,
-      reorder_point: 25,
-      suggested_order_qty: 30,
-      confidence_score: 0.91,
-      reason: "Universal donor blood reserve is critical; requires rapid blood bank rotation.",
-      calculated_at: new Date().toISOString(),
-      formula_used: "Earliest Expiry First Allocation",
-    },
-    daily_burn_rate: 2.8,
-    days_until_stockout: 4.3,
-  },
-  {
-    id: 4,
-    sku: "MED-RES-004",
-    name: "Albuterol Inhalation Solution",
-    category: "Respiratory",
-    current_stock: 310,
-    unit: "Vials",
-    safety_threshold: 150,
-    unit_cost: 3.2,
-    cold_chain_required: false,
-    trauma_critical: false,
-    status: "OPTIMAL",
-    risk_score: 22,
-    risk_level: "LOW",
-    daily_burn_rate: 12.5,
-    days_until_stockout: 24.8,
-  },
-  {
-    id: 5,
-    sku: "MED-ANL-005",
-    name: "Fentanyl Citrate 50mcg/mL",
-    category: "Anesthesia & Pain Relief",
-    current_stock: 85,
-    unit: "Ampoules",
-    safety_threshold: 60,
-    unit_cost: 18.0,
-    cold_chain_required: false,
-    trauma_critical: true,
-    status: "OPTIMAL",
-    risk_score: 35,
-    risk_level: "LOW",
-    daily_burn_rate: 6.2,
-    days_until_stockout: 13.7,
-  },
-  {
-    id: 6,
-    sku: "MED-VAC-006",
-    name: "Rabies Post-Exposure Vaccine",
-    category: "Vaccines",
-    current_stock: 28,
-    unit: "Doses",
-    safety_threshold: 40,
-    unit_cost: 45.0,
-    cold_chain_required: true,
-    trauma_critical: false,
-    status: "EXPIRING_SOON",
-    risk_score: 64,
-    risk_level: "MEDIUM",
-    daily_burn_rate: 2.1,
-    days_until_stockout: 13.3,
-  },
-];
-
-const MOCK_HOSPITALS: NetworkHospital[] = [
-  {
-    id: 1,
-    name: "Central Civil Hospital & Trauma Centre",
-    trauma_level: "Level-1",
-    latitude: 28.6139,
-    longitude: 77.209,
-    total_beds: 450,
-    available_beds: 82,
-    trauma_beds_available: 14,
-    icu_beds_available: 9,
-    general_beds_available: 45,
-    oxygen_beds_available: 14,
-    distance_km: 3.2,
-    estimated_transit_mins: 8,
-    last_sync_timestamp: new Date().toISOString(),
-  },
-  {
-    id: 2,
-    name: "North Metro Specialty Care",
-    trauma_level: "Level-2",
-    latitude: 28.6353,
-    longitude: 77.225,
-    total_beds: 280,
-    available_beds: 34,
-    trauma_beds_available: 4,
-    icu_beds_available: 3,
-    general_beds_available: 21,
-    oxygen_beds_available: 6,
-    distance_km: 6.8,
-    estimated_transit_mins: 15,
-    last_sync_timestamp: new Date().toISOString(),
-  },
-  {
-    id: 3,
-    name: "South Suburban District Hospital",
-    trauma_level: "District",
-    latitude: 28.5562,
-    longitude: 77.1734,
-    total_beds: 190,
-    available_beds: 58,
-    trauma_beds_available: 6,
-    icu_beds_available: 7,
-    general_beds_available: 35,
-    oxygen_beds_available: 10,
-    distance_km: 9.4,
-    estimated_transit_mins: 22,
-    last_sync_timestamp: new Date().toISOString(),
-  },
-  {
-    id: 4,
-    name: "Apex Emergency Medical Institute",
-    trauma_level: "Level-1",
-    latitude: 28.5921,
-    longitude: 77.1982,
-    total_beds: 320,
-    available_beds: 12,
-    trauma_beds_available: 1,
-    icu_beds_available: 2,
-    general_beds_available: 6,
-    oxygen_beds_available: 3,
-    distance_km: 4.9,
-    estimated_transit_mins: 12,
-    last_sync_timestamp: new Date().toISOString(),
-  },
-];
-
-const MOCK_ALERTS: PreparednessAlert[] = [
-  {
-    id: 1,
-    title: "Regional Dengue Outbreak Advisory",
-    source_bulletin: "Health Surveillance Department",
-    disease_detected: "Dengue Fever",
-    confidence: 0.94,
-    severity: "CRITICAL",
-    recommended_action: "Stockpile IV Normal Saline and Paracetamol drops. Increase safe threshold by 2.2x.",
-    inventory_impact_rationale: "Cluster detected in 4 adjacent postal zones. Expect a 300% surge in fluid requirements over next 2 weeks.",
-    timestamp: new Date(Date.now() - 1000 * 60 * 18).toISOString(),
-  },
-  {
-    id: 2,
-    title: "Unusual Usage Spike: Tranexamic Acid",
-    source_bulletin: "Hospital Usage Monitoring System",
-    disease_detected: "Emergency Trauma Outflow",
-    confidence: 0.98,
-    severity: "HIGH",
-    recommended_action: "Expedite delivery with supplier. Current usage rate will exhaust stock in 42 hours.",
-    inventory_impact_rationale: "Usage is 3.4x higher than 30-day baseline due to multi-casualty accident admissions.",
-    timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-  },
-  {
-    id: 3,
-    title: "Batch Expiring Soon: Ceftriaxone Batch #CFX-901",
-    source_bulletin: "Earliest Expiry Tracking",
-    disease_detected: "Batch Expiry",
-    confidence: 1.0,
-    severity: "MEDIUM",
-    recommended_action: "Use Batch #CFX-901 first for current patients; 40 vials expire in 18 days.",
-    inventory_impact_rationale: "Earliest-expiry protocol has routed CFX-901 to front of dispensing queue.",
-    timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-  },
-];
-
-// --- Public API Functions ---
-
-export async function fetchInventorySummary() {
-  try {
-    const res = await fetch(`${API_BASE}/api/inventory/summary`);
-    if (!res.ok) throw new Error("API error");
-    return await res.json();
-  } catch (err) {
-    return MOCK_SUMMARY;
-  }
+import { InventoryItem, NetworkHospital, PreparednessAlert, ForecastOverview } from "./types";
+let workRole = "Hospital Administrator";
+export function setApiRole(role: string) {workRole = role;}
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+export async function request(path: string, options?: RequestInit): Promise<any> {
+  const res = await fetch(`${API_BASE}${path}`, {cache: "no-store", ...options, headers: {...options?.headers, "X-Work-Role": workRole}});
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(typeof data?.detail === "string" ? data.detail : `Request failed (${res.status})`);
+  return data;
 }
-
-export async function fetchInventoryItems(category?: string, riskLevel?: string, search?: string) {
-  try {
-    const params = new URLSearchParams();
-    if (category && category !== "ALL") params.append("category", category);
-    if (riskLevel && riskLevel !== "ALL") params.append("risk_level", riskLevel);
-    if (search) params.append("search", search);
-
-    const res = await fetch(`${API_BASE}/api/inventory/items?${params.toString()}`);
-    if (!res.ok) throw new Error("API error");
-    const data = await res.json();
-    return Array.isArray(data) && data.length > 0 ? data : MOCK_ITEMS;
-  } catch (err) {
-    return MOCK_ITEMS;
-  }
+const post = (path: string, body: any, method = "POST") => request(path, {method, headers: {"Content-Type":"application/json"}, body: JSON.stringify(body)});
+export const fetchInventorySummary = () => request("/api/inventory/summary");
+export async function fetchInventoryItems(category?: string, riskLevel?: string, search?: string): Promise<InventoryItem[]> {
+  const params = new URLSearchParams();
+  if (category) params.set("category", category);
+  if (riskLevel) params.set("risk_level", riskLevel);
+  if (search) params.set("search", search);
+  return (await request(`/api/inventory/items?${params}`)).map((i: any) => ({...i,
+    sku: i.item_code, safety_threshold: i.safety_stock_threshold,
+    trauma_critical: i.is_trauma_critical, cold_chain_required: i.storage_temp_c != null && i.storage_temp_c <= 8,
+    storage_temp_c: i.storage_temp_c,
+    risk_score: i.composite_risk_score,
+    risk_level: i.composite_risk_score >= 70 ? "CRITICAL" : i.composite_risk_score >= 40 ? "MEDIUM" : "LOW",
+    status: i.current_stock <= 0 ? "STOCKOUT" : i.current_stock < i.safety_stock_threshold ? "LOW_STOCK" : "OPTIMAL",
+    days_until_stockout: i.days_of_stock_left,
+    daily_burn_rate: i.daily_run_rate,
+  }));
 }
-
 export async function fetchBatches(itemId?: number, expiryWarningOnly = false) {
-  try {
-    const params = new URLSearchParams();
-    if (itemId) params.append("item_id", itemId.toString());
-    if (expiryWarningOnly) params.append("expiry_warning_only", "true");
-
-    const res = await fetch(`${API_BASE}/api/inventory/batches?${params.toString()}`);
-    if (!res.ok) throw new Error("API error");
-    return await res.json();
-  } catch (err) {
-    return [];
-  }
+  const params = new URLSearchParams({expiry_warning_only: String(expiryWarningOnly)});
+  if (itemId) params.set("item_id", String(itemId));
+  return (await request(`/api/inventory/batches?${params}`)).map((b: any) => ({...b,
+    current_quantity: b.remaining_quantity, unit_cost: b.unit_purchase_price,
+    is_expired: b.days_to_expiry <= 0, is_near_expiry: b.days_to_expiry > 0 && b.days_to_expiry <= 90}));
 }
-
-export async function adjustStock(payload: {
-  batch_id: number;
-  quantity: number;
-  transaction_type: string;
-  department?: string;
-  notes?: string;
-}) {
-  const res = await fetch(`${API_BASE}/api/inventory/adjust`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Stock adjustment failed" }));
-    throw new Error(err.detail || "Stock adjustment failed");
-  }
-  return res.json();
-}
-
-export async function allocateFEFO(itemId: number, quantity: number) {
-  const res = await fetch(`${API_BASE}/api/inventory/fefo-allocate?item_id=${itemId}&quantity=${quantity}`, {
-    method: "POST",
-  });
-  if (!res.ok) throw new Error("Expiry-first allocation request failed");
-  return res.json();
-}
-
-function generateFallbackSeries(itemId: number, horizon = 30) {
-  const series = [];
-  const baseDemand = itemId === 1 ? 14 : itemId === 2 ? 10 : 8;
-  for (let i = 14; i >= 1; i--) {
-    const d = new Date(Date.now() - i * 86400000);
-    const dateStr = d.toISOString().split("T")[0];
-    const noise = Math.sin(i) * 3 + Math.random() * 2;
-    series.push({
-      date: dateStr,
-      historical_consumption: Math.max(2, Math.round(baseDemand + noise)),
-      predicted_demand: Math.round(baseDemand + noise * 0.5),
-      confidence_lower_80: Math.round((baseDemand + noise) * 0.85),
-      confidence_upper_80: Math.round((baseDemand + noise) * 1.15),
-      confidence_lower_95: Math.round((baseDemand + noise) * 0.72),
-      confidence_upper_95: Math.round((baseDemand + noise) * 1.28),
-    });
-  }
-  for (let i = 0; i <= horizon; i++) {
-    const d = new Date(Date.now() + i * 86400000);
-    const dateStr = d.toISOString().split("T")[0];
-    const predicted = Math.round(baseDemand * (1 + 0.015 * i) + Math.cos(i) * 2);
-    series.push({
-      date: dateStr,
-      historical_consumption: undefined,
-      predicted_demand: predicted,
-      confidence_lower_80: Math.round(predicted * 0.82),
-      confidence_upper_80: Math.round(predicted * 1.18),
-      confidence_lower_95: Math.round(predicted * 0.68),
-      confidence_upper_95: Math.round(predicted * 1.32),
-    });
-  }
-  return series;
-}
-
+export const adjustStock = (payload: any) => post("/api/inventory/adjust", payload);
+export const allocateFEFO = (itemId: number, quantity: number) => request(`/api/inventory/fefo-allocate?item_id=${itemId}&quantity=${quantity}`, {method:"POST"});
+export const dispenseFEFO = (itemId: number, quantity: number) => request(`/api/inventory/dispense?item_id=${itemId}&quantity=${quantity}`, {method:"POST"});
 export async function fetchItemForecast(itemId: number, horizon = 30): Promise<ForecastOverview> {
-  try {
-    const res = await fetch(`${API_BASE}/api/forecast/item/${itemId}?horizon_days=${horizon}`);
-    if (!res.ok) throw new Error("API error");
-    const raw = await res.json();
-
-    const series: any[] = [];
-    if (Array.isArray(raw.historical)) {
-      raw.historical.forEach((h: any) => {
-        series.push({
-          date: h.date,
-          historical_consumption: h.actual_consumption,
-          predicted_demand: undefined,
-          confidence_lower_80: undefined,
-          confidence_upper_80: undefined,
-          confidence_lower_95: undefined,
-          confidence_upper_95: undefined,
-        });
-      });
-    }
-
-    if (Array.isArray(raw.forecast)) {
-      raw.forecast.forEach((f: any) => {
-        const pred = f.predicted_demand;
-        const low = f.confidence_lower ?? pred * 0.82;
-        const high = f.confidence_upper ?? pred * 1.18;
-        series.push({
-          date: f.date,
-          historical_consumption: undefined,
-          predicted_demand: pred,
-          confidence_lower_80: Math.round(low * 10) / 10,
-          confidence_upper_80: Math.round(high * 10) / 10,
-          confidence_lower_95: Math.round((low * 0.9) * 10) / 10,
-          confidence_upper_95: Math.round((high * 1.1) * 10) / 10,
-        });
-      });
-    }
-
-    return {
-      item_id: raw.item_id,
-      item_name: raw.item_name,
-      current_stock: raw.current_stock,
-      daily_demand_mean: raw.daily_run_rate ?? 5.5,
-      days_until_depletion: raw.projected_stock_out_days ?? 3.5,
-      projected_stockout_date: raw.projected_stock_out_date ?? "Within 7 days",
-      mae: raw.mae ?? 0.95,
-      rmse: raw.rmse ?? 1.25,
-      r2_score: raw.r2_score ?? 0.88,
-      series: series.length > 0 ? series : generateFallbackSeries(itemId, horizon),
-    };
-  } catch (err) {
-    return {
-      item_id: itemId,
-      item_name: itemId === 1 ? "Ceftriaxone 1g Injectable" : "Tranexamic Acid 500mg/5mL",
-      current_stock: itemId === 1 ? 45 : 18,
-      daily_demand_mean: itemId === 1 ? 14 : 10,
-      days_until_depletion: itemId === 1 ? 3.2 : 1.8,
-      projected_stockout_date: new Date(Date.now() + 3.2 * 86400000).toLocaleDateString(),
-      mae: 1.14,
-      rmse: 1.48,
-      r2_score: 0.912,
-      series: generateFallbackSeries(itemId, horizon),
-    };
-  }
+  const d = await request(`/api/forecast/item/${itemId}?horizon_days=${horizon}`);
+  return {...d, daily_demand_mean: d.daily_run_rate, days_until_depletion: d.projected_stock_out_days,
+    projected_stockout_date: d.projected_stock_out_date,
+    series: [...d.historical.map((p: any) => ({date:p.date, historical_consumption:p.actual_consumption})),
+      ...d.forecast.map((p: any) => ({...p,
+        confidence_lower_95:p.confidence_lower, confidence_upper_95:p.confidence_upper,
+        confidence_lower_80:Math.max(0, p.predicted_demand-(p.predicted_demand-p.confidence_lower)*1.282/1.96),
+        confidence_upper_80:p.predicted_demand+(p.confidence_upper-p.predicted_demand)*1.282/1.96}))]};
 }
-
 export async function fetchReorders(filterUrgent = false) {
-  try {
-    const res = await fetch(`${API_BASE}/api/procurement/reorders?filter_urgent_only=${filterUrgent}`);
-    if (!res.ok) throw new Error("API error");
-    const data = await res.json();
-    return Array.isArray(data) && data.length > 0 ? data : [
-      {
-        item_id: 1,
-        item_name: "Ceftriaxone 1g Injectable",
-        sku: "MED-ABX-001",
-        category: "Antibiotics",
-        current_stock: 45,
-        reorder_point: 120,
-        suggested_qty: 350,
-        unit_cost: 14.5,
-        total_estimated_cost: 5075.0,
-        supplier_id: 1,
-        supplier_name: "MediPharma Global Supplies",
-        urgency: "CRITICAL",
-        lead_time_days: 3,
-        supplier_reliability: 0.96,
-        reason: "Stock buffer is below safe replenishment level (45 vs 120 units).",
-      },
-      {
-        item_id: 2,
-        item_name: "Tranexamic Acid 500mg/5mL",
-        sku: "MED-TRA-002",
-        category: "Trauma & Emergency",
-        current_stock: 18,
-        reorder_point: 80,
-        suggested_qty: 250,
-        unit_cost: 8.75,
-        total_estimated_cost: 2187.5,
-        supplier_id: 2,
-        supplier_name: "Apex Emergency Medical Devices",
-        urgency: "CRITICAL",
-        lead_time_days: 2,
-        supplier_reliability: 0.98,
-        reason: "Minimum emergency trauma reserve depleted. Only 1.8 days of supply remaining.",
-      },
-    ];
-  } catch (err) {
-    return [];
-  }
+  return (await request(`/api/procurement/reorders?filter_urgent_only=${filterUrgent}`)).map((r: any) => ({...r,
+    sku:r.item_code, reason:r.reasoning, urgency:r.urgency_score >= .85 ? "CRITICAL" : "Recommended"}));
 }
-
-export async function fetchApprovedOrders() {
-  try {
-    const res = await fetch(`${API_BASE}/api/procurement/orders/approved`);
-    if (!res.ok) throw new Error("API error");
-    return await res.json();
-  } catch (err) {
-    return [];
-  }
-}
-
 export async function fetchSuppliers() {
-  try {
-    const res = await fetch(`${API_BASE}/api/procurement/suppliers`);
-    if (!res.ok) throw new Error("API error");
-    return await res.json();
-  } catch (err) {
-    return [
-      {
-        id: 1,
-        name: "MediPharma Global Supplies",
-        reliability_score: 0.96,
-        avg_lead_time_days: 3.2,
-        on_time_delivery_rate: 0.98,
-        quality_compliance: 0.99,
-        category: "Pharmaceuticals & IV Fluids",
-      },
-      {
-        id: 2,
-        name: "Apex Emergency Medical Devices",
-        reliability_score: 0.98,
-        avg_lead_time_days: 1.8,
-        on_time_delivery_rate: 0.99,
-        quality_compliance: 1.0,
-        category: "Trauma, Surgical & Cold Chain",
-      },
-      {
-        id: 3,
-        name: "BioShield Vaccines & Diagnostics",
-        reliability_score: 0.91,
-        avg_lead_time_days: 4.5,
-        on_time_delivery_rate: 0.93,
-        quality_compliance: 0.97,
-        category: "Vaccines & Biologicals",
-      },
-    ];
-  }
+  return (await request("/api/procurement/suppliers")).map((s: any) => ({...s,
+    avg_lead_time_days:s.historical_lead_time_days, quality_compliance:s.quality_compliance_score,
+    category:s.composite_grade}));
 }
-
-export async function approvePurchaseOrder(itemId: number, supplierId: number, qty: number, unitCost: number) {
-  const res = await fetch(
-    `${API_BASE}/api/procurement/reorders/approve?item_id=${itemId}&supplier_id=${supplierId}&quantity=${qty}&unit_cost=${unitCost}`,
-    { method: "POST" }
-  );
-  if (!res.ok) throw new Error("Approval failed");
-  return await res.json();
+export const approvePurchaseOrder = (itemId: number, supplierId: number, qty: number, unitCost: number) => request(`/api/procurement/reorders/approve?item_id=${itemId}&supplier_id=${supplierId}&quantity=${qty}&unit_cost=${unitCost}`, {method:"POST"});
+export const fetchOrderOptions = () => request("/api/procurement/order-options");
+export const createManualOrder = (itemId: number, quantity: number) => post("/api/procurement/orders/manual", {item_id: itemId, quantity});
+export const fetchPurchaseOrders = () => request("/api/procurement/orders");
+export const updatePurchaseOrder = (id: number, action: string) => post(`/api/procurement/orders/${id}`, {action}, "PATCH");
+function hospital(d: any): NetworkHospital {
+  const beds = d.beds || [];
+  const count = (type: string) => beds.find((b: any) => b.bed_type.toLowerCase() === type)?.available_beds ?? 0;
+  const lat1 = 28.6139 * Math.PI/180, lat2 = d.latitude * Math.PI/180;
+  const a = Math.sin((lat2-lat1)/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin((d.longitude-77.209)*Math.PI/360)**2;
+  const km = 6371*2*Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0,1-a)));
+  return {...d, id:d.id ?? d.hospital_id, total_beds:d.total_beds ?? d.total_capacity, beds, trauma_beds_available:count("trauma"), icu_beds_available:count("icu"), general_beds_available:count("general"), oxygen_beds_available:count("oxygen"),
+    distance_km:d.distance_km ?? Number(km.toFixed(2)), estimated_transit_mins:d.estimated_transit_mins ?? d.estimated_transit_minutes ?? Math.max(1, Math.round(km/25*60)),
+    last_sync_timestamp:new Date().toISOString()};
 }
-
-export async function fetchHospitals(): Promise<NetworkHospital[]> {
-  try {
-    const res = await fetch(`${API_BASE}/api/emergency/hospitals`);
-    if (!res.ok) throw new Error("API error");
-    const data = await res.json();
-    return Array.isArray(data) && data.length > 0 ? data : MOCK_HOSPITALS;
-  } catch (err) {
-    return MOCK_HOSPITALS;
-  }
-}
-
-export async function searchEmergencyHospitals(payload: {
-  incident_latitude: number;
-  incident_longitude: number;
-  required_bed_type: string;
-  min_available_beds?: number;
-  max_radius_km?: number;
-}): Promise<NetworkHospital[]> {
-  try {
-    const res = await fetch(`${API_BASE}/api/emergency/hospital-finder`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error("Spatial search failed");
-    return await res.json();
-  } catch (err) {
-    return MOCK_HOSPITALS;
-  }
-}
-
-export async function dispatchPatientTransfer(payload: {
-  destination_hospital_id: number;
-  bed_type: string;
-  patient_name?: string;
-  source_hospital_id?: number;
-}) {
-  const res = await fetch(`${API_BASE}/api/emergency/transfer/dispatch`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error("Dispatch failed");
-  return await res.json();
-}
-
-export async function rejectPatientTransfer(payload: {
-  destination_hospital_id: number;
-  bed_type: string;
-  rejection_reason?: string;
-}) {
-  const res = await fetch(`${API_BASE}/api/emergency/transfer/reject`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error("Rejection failed");
-  return await res.json();
-}
-
-export async function adjustBedCapacity(payload: {
-  hospital_id: number;
-  bed_type: string;
-  action: "ADMIT" | "DISCHARGE";
-}) {
-  const res = await fetch(`${API_BASE}/api/emergency/bed/adjust`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error("Bed adjustment failed");
-  return await res.json();
-}
-
-export async function fetchEmergencyStatus() {
-  try {
-    const res = await fetch(`${API_BASE}/api/emergency/status`);
-    if (!res.ok) throw new Error("API error");
-    return await res.json();
-  } catch (err) {
-    return { is_emergency_active: false, surge_multiplier: 1.0 };
-  }
-}
-
-export async function toggleEmergencyMode(payload: {
-  enable_emergency_mode: boolean;
-  incident_type?: string;
-  surge_multiplier?: number;
-  incident_location?: string;
-}) {
-  const res = await fetch(`${API_BASE}/api/emergency/toggle`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error("Failed to toggle emergency mode");
-  return res.json();
-}
-
-export async function fetchAlerts(): Promise<PreparednessAlert[]> {
-  try {
-    const res = await fetch(`${API_BASE}/api/nlp/alerts`);
-    if (!res.ok) throw new Error("API error");
-    const data = await res.json();
-    return Array.isArray(data) && data.length > 0 ? data : MOCK_ALERTS;
-  } catch (err) {
-    return MOCK_ALERTS;
-  }
-}
-
-export async function ingestHealthSignal(payload: {
-  headline: string;
-  content: string;
-  source_agency?: string;
-}) {
-  const res = await fetch(`${API_BASE}/api/nlp/ingest`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error("Ingestion failed");
-  return res.json();
-}
-
+export async function fetchHospitals(): Promise<NetworkHospital[]> {return (await request("/api/emergency/hospitals")).map(hospital);}
+export async function searchEmergencyHospitals(payload: any): Promise<NetworkHospital[]> {return (await post("/api/emergency/hospital-finder", payload)).map(hospital);}
+export const fetchEmergencyStatus = () => request("/api/emergency/status");
+export const toggleEmergencyMode = (payload: any) => post("/api/emergency/toggle", payload);
+export async function fetchAlerts(): Promise<PreparednessAlert[]> {return (await request("/api/nlp/alerts")).map((a: any) => ({...a,
+  source_bulletin:a.data_source, disease_detected:a.disease_entity, confidence:a.confidence_score,
+  inventory_impact_rationale:a.mathematical_reasoning, is_resolved:!a.is_active}));}
+export const ingestHealthSignal = (payload: any) => post("/api/nlp/ingest", payload);
 export async function askAIAssistant(query: string, roleContext: string, history: any[] = []) {
-  try {
-    const res = await fetch(`${API_BASE}/api/assistant/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query,
-        role_context: roleContext,
-        history,
-      }),
-    });
-    if (!res.ok) throw new Error("AI query failed");
-    return await res.json();
-  } catch (err) {
-    return {
-      response: `Based on current hospital data for ${roleContext}: We are tracking 1 impending shortage on Tranexamic Acid (1.8 days reserve remaining, daily usage 10.0 ampoules/day). Ceftriaxone Batch #CFX-901 has 40 vials expiring in 18 days under earliest-expiry protocol. Recommended reorder generated with 96% confidence.`,
-      citations: [
-        { source: "Inventory Records", reference: "Tranexamic Acid: Stock=18, Safe Minimum=80" },
-        { source: "Expiry Schedule", reference: "Batch CFX-901, Exp=2026-11-01" },
-        { source: "Usage Forecast", reference: "30-day Demand Projection" },
-      ],
-      suggested_actions: ["Approve Order for Tranexamic Acid", "Turn on Emergency Surge Mode", "View Demand Forecast"],
-    };
-  }
+  const d = await post("/api/assistant/chat", {query, role_context:roleContext, history:history.map(m => ({role:m.role, content:m.content}))});
+  return {...d, response:d.reply.replace(/\*\*/g, "").replace(/`/g, ""), citations:d.citations.map((c: any) => ({...c, source:c.title, reference:c.details}))};
 }
-
+export const fetchDispatches = () => request("/api/emergency/dispatches");
+export const createDispatch = (payload: any) => post("/api/emergency/dispatches", payload);
+export const updateDispatch = (id: number, payload: any) => post(`/api/emergency/dispatches/${id}`, payload, "PATCH");
+export const updateBeds = (id: number, payload: any) => post(`/api/emergency/hospitals/${id}/beds`, payload, "PATCH");
 export function subscribeToSSE(onMessage: (event: string, data: any) => void) {
-  try {
-    const eventSource = new EventSource(`${API_BASE}/api/stream/sse`);
-
-    eventSource.addEventListener("CONNECTED", (e) => {
-      try { onMessage("CONNECTED", JSON.parse(e.data)); } catch (_) {}
-    });
-
-    eventSource.addEventListener("INVENTORY_UPDATE", (e) => {
-      try { onMessage("INVENTORY_UPDATE", JSON.parse(e.data)); } catch (_) {}
-    });
-
-    eventSource.addEventListener("EMERGENCY_MODE_STATE", (e) => {
-      try { onMessage("EMERGENCY_MODE_STATE", JSON.parse(e.data)); } catch (_) {}
-    });
-
-    eventSource.addEventListener("AI_PREPAREDNESS_ALERT", (e) => {
-      try { onMessage("AI_PREPAREDNESS_ALERT", JSON.parse(e.data)); } catch (_) {}
-    });
-
-    eventSource.addEventListener("PO_APPROVED", (e) => {
-      try { onMessage("PO_APPROVED", JSON.parse(e.data)); } catch (_) {}
-    });
-
-    eventSource.addEventListener("PATIENT_TRANSFER_DISPATCHED", (e) => {
-      try { onMessage("PATIENT_TRANSFER_DISPATCHED", JSON.parse(e.data)); } catch (_) {}
-    });
-
-    eventSource.addEventListener("PATIENT_TRANSFER_REJECTED", (e) => {
-      try { onMessage("PATIENT_TRANSFER_REJECTED", JSON.parse(e.data)); } catch (_) {}
-    });
-
-    eventSource.addEventListener("BED_CAPACITY_UPDATED", (e) => {
-      try { onMessage("BED_CAPACITY_UPDATED", JSON.parse(e.data)); } catch (_) {}
-    });
-
-    return () => eventSource.close();
-  } catch (err) {
-    console.warn("SSE connection error", err);
-    return () => {};
-  }
+  const source = new EventSource(`${API_BASE}/api/stream/sse?role=${encodeURIComponent(workRole)}`);
+  source.onopen = () => onMessage("CONNECTION_STATE", {connected:true});
+  source.onerror = () => onMessage("CONNECTION_STATE", {connected:false});
+  ["CONNECTED","INVENTORY_UPDATE","EMERGENCY_MODE_STATE","AI_PREPAREDNESS_ALERT","PO_APPROVED","ORDER_UPDATED","BED_UPDATE","DISPATCH_UPDATE"].forEach(event => {
+    source.addEventListener(event, (e) => {try {onMessage(event, JSON.parse((e as MessageEvent).data));} catch {}});
+  });
+  return () => source.close();
 }

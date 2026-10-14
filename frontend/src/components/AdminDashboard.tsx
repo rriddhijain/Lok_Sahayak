@@ -181,7 +181,7 @@ export default function AdminDashboard({
                         </span>
                       </div>
                       <div className="text-right">
-                        <span className="text-slate-400 block text-[10px]">ICU Beds</span>
+                        <span className="text-slate-400 block text-[10px]">Intensive care beds</span>
                         <span className="font-bold text-cyan-400">
                           {icuBed?.available_beds ?? 0}
                           <span className="text-slate-500 font-normal">/{icuBed?.total_capacity ?? 0}</span>
